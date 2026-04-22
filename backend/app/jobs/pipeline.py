@@ -8,7 +8,7 @@ from pathlib import Path
 
 from backend.app.asr import Transcriber
 from backend.app.settings import Settings
-from backend.app.summary import OllamaClient, OllamaError, Summarizer
+from backend.app.summary import OllamaClient, OllamaError, Summarizer, parse_summary_size
 
 from . import repository as repo
 
@@ -54,6 +54,7 @@ def run_pipeline(job_id: str, settings: Settings) -> None:
     audio = Path(row["audio_path"])
     preset = row["asr_preset"]
     summary_size = row["summary_size"]
+    summarize_only = int(row.get("summarize_only") or 0)
 
     def fail(e: BaseException) -> None:
         row2 = repo.get_job(db, job_id)
@@ -70,6 +71,7 @@ def run_pipeline(job_id: str, settings: Settings) -> None:
             detail = f"{detail}\n\n{_M5_OLLAMA_METAL_HINT}"
         detail = detail[:8000]
         logger.error("Job %s failed", job_id, exc_info=True)
+        repo.clear_summarize_only_flag(db, job_id)
         repo.update_stages_and_optional(
             db,
             job_id,
@@ -79,23 +81,47 @@ def run_pipeline(job_id: str, settings: Settings) -> None:
         )
 
     try:
-        if not audio.is_file():
-            raise FileNotFoundError(f"Audio not found: {audio}")
+        if summarize_only:
+            transcript_text = (row.get("transcript") or "").strip()
+            if not transcript_text:
+                raise ValueError("Empty transcript for summarize-only job")
+            prev_timings = (
+                json.loads(row["timings_json"]) if row.get("timings_json") else {}
+            )
+            asr_ms = int(prev_timings.get("asr_ms", 0))
+            prev_mi = (
+                json.loads(row["model_info_json"]) if row.get("model_info_json") else {}
+            )
+            whisper_model = str(prev_mi.get("whisper_model", "unknown"))
+            language = prev_mi.get("asr_language")
+            duration_sec = prev_mi.get("asr_duration_sec")
+            logger.info(
+                "Job %s summarize-only (skip ASR), transcript_len=%s",
+                job_id,
+                len(transcript_text),
+            )
+        else:
+            if not audio.is_file():
+                raise FileNotFoundError(f"Audio not found: {audio}")
 
-        logger.info("Job %s ASR start preset=%s file=%s", job_id, preset, audio)
-        t0 = time.perf_counter()
-        tr = _get_transcriber(settings).transcribe(audio, preset)
-        asr_ms = int((time.perf_counter() - t0) * 1000)
+            logger.info("Job %s ASR start preset=%s file=%s", job_id, preset, audio)
+            t0 = time.perf_counter()
+            tr = _get_transcriber(settings).transcribe(audio, preset)
+            asr_ms = int((time.perf_counter() - t0) * 1000)
+            transcript_text = tr.text
+            whisper_model = tr.whisper_model
+            language = tr.language
+            duration_sec = tr.duration_sec
 
-        st1 = {"upload": "done", "asr": "done", "summarize": "processing"}
-        repo.update_stages_and_optional(
-            db,
-            job_id,
-            stages=st1,
-            transcript=tr.text,
-        )
+            st1 = {"upload": "done", "asr": "done", "summarize": "processing"}
+            repo.update_stages_and_optional(
+                db,
+                job_id,
+                stages=st1,
+                transcript=transcript_text,
+            )
 
-        logger.info("Job %s summarize start size=%s", job_id, summary_size)
+        logger.info("Job %s summarize start size=%s summarize_only=%s", job_id, summary_size, summarize_only)
         t1 = time.perf_counter()
         ollama_opts: dict = {
             "num_ctx": settings.ollama_num_ctx,
@@ -126,24 +152,33 @@ def run_pipeline(job_id: str, settings: Settings) -> None:
                 ollama_num_ctx=settings.ollama_num_ctx,
                 ollama_num_predict=settings.ollama_num_predict,
             )
-            sr = summarizer.summarize(tr.text, summary_size)
+            nominal = parse_summary_size(str(summary_size).strip())
+            cp = (row.get("custom_prompt") or "").strip()
+            if cp:
+                sr = summarizer.summarize_custom_prompt(
+                    transcript_text, cp, nominal_size=nominal
+                )
+            else:
+                sr = summarizer.summarize(transcript_text, summary_size)
         sum_ms = int((time.perf_counter() - t1) * 1000)
 
         st2 = {"upload": "done", "asr": "done", "summarize": "done"}
         timings = {"asr_ms": asr_ms, "summarize_ms": sum_ms}
-        model_info = {
+        model_info: dict = {
             "asr_preset": preset,
-            "whisper_model": tr.whisper_model,
+            "whisper_model": whisper_model,
             "summary_size": summary_size,
             "ollama_model": settings.ollama_model,
             "summary_mode": sr.mode,
             "summary_source_chunks": sr.source_chunks,
-            "asr_language": tr.language,
-            "asr_duration_sec": tr.duration_sec,
+            "asr_language": language,
+            "asr_duration_sec": duration_sec,
             "ollama_num_gpu": settings.ollama_num_gpu,
             "ollama_homebrew_formula": settings.ollama_homebrew_formula,
             "apple_m5_cpu": settings.apple_m5_cpu,
         }
+        if summarize_only:
+            model_info["summarize_only_rerun"] = True
         repo.update_stages_and_optional(
             db,
             job_id,
@@ -153,6 +188,14 @@ def run_pipeline(job_id: str, settings: Settings) -> None:
             timings=timings,
             model_info=model_info,
         )
-        logger.info("Job %s completed", job_id)
+        repo.clear_summarize_only_flag(db, job_id)
+        logger.info(
+            "Job %s completed summarize_ms=%s mode=%s source_chunks=%s summarize_only=%s",
+            job_id,
+            sum_ms,
+            sr.mode,
+            sr.source_chunks,
+            summarize_only,
+        )
     except Exception as e:
         fail(e)

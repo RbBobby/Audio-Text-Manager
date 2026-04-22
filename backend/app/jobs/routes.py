@@ -5,7 +5,8 @@ import logging
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
+from starlette import status
 
 from backend.app.asr import parse_asr_preset
 from backend.app.media_probe import audio_duration_seconds
@@ -13,7 +14,21 @@ from backend.app.settings import Settings
 from backend.app.summary import parse_summary_size
 
 from . import repository as repo
-from .schemas import JobCreateResponse, JobResultResponse, JobStatusResponse
+from .schemas import (
+    JobBulkDeleteBody,
+    JobBulkDeleteResponse,
+    JobBulkDeleteSkipped,
+    JobCreateResponse,
+    JobListItem,
+    JobListResponse,
+    JobRequeueBody,
+    JobRequeueResponse,
+    JobResultResponse,
+    JobStatusResponse,
+    JobSummarizeOnlyBody,
+    JobSummarizeOnlyResponse,
+    JobTranscriptResponse,
+)
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 logger = logging.getLogger(__name__)
@@ -32,12 +47,48 @@ def _row_to_status(row: dict) -> JobStatusResponse:
     )
 
 
+@router.get("", response_model=JobListResponse)
+def list_jobs(
+    request: Request,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+) -> JobListResponse:
+    settings: Settings = request.app.state.settings
+    rows = repo.list_jobs(settings.sqlite_path, limit=limit, offset=offset)
+    items = [
+        JobListItem(
+            id=r["id"],
+            status=r["status"],
+            asr_preset=r["asr_preset"],
+            summary_size=r["summary_size"],
+            original_filename=r["original_filename"],
+            stages=r["stages"],
+            created_at=r["created_at"],
+            updated_at=r["updated_at"],
+        )
+        for r in rows
+    ]
+    return JobListResponse(jobs=items, limit=limit, offset=offset)
+
+
+@router.post("/bulk-delete", response_model=JobBulkDeleteResponse)
+def bulk_delete_jobs(request: Request, body: JobBulkDeleteBody) -> JobBulkDeleteResponse:
+    """Удалить выбранные задачи: запись в SQLite и файл загрузки (транскрипт/саммари в БД)."""
+    settings: Settings = request.app.state.settings
+    deleted, skipped_raw = repo.delete_jobs_bulk(settings.sqlite_path, body.job_ids)
+    skipped = [JobBulkDeleteSkipped(id=s["id"], reason=s["reason"]) for s in skipped_raw]
+    if deleted:
+        logger.info("Bulk-delete removed %d job(s)", len(deleted))
+    return JobBulkDeleteResponse(deleted=deleted, skipped=skipped)
+
+
 @router.post("", response_model=JobCreateResponse)
 async def create_job(
     request: Request,
     asr_model: str = Form(),
     summary_size: str = Form(),
     audio_file: UploadFile = File(),
+    custom_prompt: str | None = Form(default=None),
 ) -> JobCreateResponse:
     settings: Settings = request.app.state.settings
     try:
@@ -48,6 +99,8 @@ async def create_job(
         size = parse_summary_size(summary_size)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+    cp = (custom_prompt or "").strip() or None
 
     raw_name = audio_file.filename or "upload"
     if ".." in raw_name or raw_name.startswith(("/", "\\")):
@@ -108,19 +161,47 @@ async def create_job(
             original_filename=safe_name,
             audio_path=audio_abs,
             stages=stages,
+            custom_prompt=cp,
         )
     except Exception:
         dest.unlink(missing_ok=True)
         raise
 
     logger.info(
-        "Job %s queued preset=%s summary=%s file=%s",
+        "Job %s queued preset=%s summary=%s file=%s custom_prompt=%s",
         job_id,
         preset,
         size,
         safe_name,
+        bool(cp),
     )
     return JobCreateResponse(job_id=job_id)
+
+
+@router.get("/{job_id}/transcript", response_model=JobTranscriptResponse)
+def get_job_transcript(request: Request, job_id: str) -> JobTranscriptResponse:
+    settings: Settings = request.app.state.settings
+    row = repo.get_job(settings.sqlite_path, job_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    tr = row.get("transcript")
+    stages = json.loads(row["stages_json"])
+    if not tr:
+        if row["status"] == "error":
+            raise HTTPException(
+                status_code=409,
+                detail=row.get("error_message") or "Job failed before transcript",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_425_TOO_EARLY,
+            detail="Transcript not ready yet",
+        )
+    return JobTranscriptResponse(
+        job_id=row["id"],
+        transcript=tr,
+        status=row["status"],
+        stages=stages,
+    )
 
 
 @router.get("/{job_id}/result", response_model=JobResultResponse)
@@ -145,6 +226,79 @@ def get_job_result(request: Request, job_id: str) -> JobResultResponse:
         timings=timings,
         model_info=model_info,
     )
+
+
+@router.post("/{job_id}/requeue", response_model=JobRequeueResponse)
+def requeue_job_endpoint(
+    request: Request,
+    job_id: str,
+    body: JobRequeueBody,
+) -> JobRequeueResponse:
+    settings: Settings = request.app.state.settings
+    try:
+        preset = parse_asr_preset(body.asr_model)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    try:
+        size = parse_summary_size(body.summary_size)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    cp = body.custom_prompt.strip() if body.custom_prompt else None
+    try:
+        repo.requeue_job(
+            settings.sqlite_path,
+            job_id,
+            asr_preset=preset,
+            summary_size=size,
+            custom_prompt=cp,
+        )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Job not found") from None
+    except RuntimeError:
+        raise HTTPException(
+            status_code=409,
+            detail="Job is still processing; wait for it to finish or error",
+        ) from None
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=410,
+            detail="Original audio file is missing; cannot re-run",
+        ) from None
+    logger.info("Job %s requeued preset=%s summary=%s", job_id, preset, size)
+    return JobRequeueResponse(job_id=job_id, status="queued")
+
+
+@router.post("/{job_id}/summarize", response_model=JobSummarizeOnlyResponse)
+def summarize_only_endpoint(
+    request: Request,
+    job_id: str,
+    body: JobSummarizeOnlyBody,
+) -> JobSummarizeOnlyResponse:
+    """Поставить в очередь только Ollama по текущему транскрипту (без повторной транскрибации)."""
+    settings: Settings = request.app.state.settings
+    try:
+        size = parse_summary_size(body.summary_size)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    cp = body.custom_prompt.strip() if body.custom_prompt else None
+    try:
+        repo.queue_summarize_only(
+            settings.sqlite_path,
+            job_id,
+            summary_size=size,
+            custom_prompt=cp,
+        )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Job not found") from None
+    except RuntimeError:
+        raise HTTPException(
+            status_code=409,
+            detail="Job is still processing; wait for it to finish or error",
+        ) from None
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+    logger.info("Job %s queued summarize-only size=%s", job_id, size)
+    return JobSummarizeOnlyResponse(job_id=job_id, status="queued")
 
 
 @router.get("/{job_id}", response_model=JobStatusResponse)

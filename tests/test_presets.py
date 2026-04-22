@@ -19,9 +19,26 @@ def test_asr_preset_mapping(preset: str, model: str) -> None:
     assert whisper_model_name(p) == model
 
 
-@pytest.mark.parametrize("size", ("short", "medium", "long"))
+@pytest.mark.parametrize("size", ("gist", "executive", "meeting"))
 def test_summary_sizes(size: str) -> None:
     assert parse_summary_size(size) == size
+
+
+@pytest.mark.parametrize(
+    ("legacy", "expected"),
+    [
+        ("short", "gist"),
+        ("medium", "executive"),
+        ("long", "meeting"),
+    ],
+)
+def test_summary_size_legacy_aliases(legacy: str, expected: str) -> None:
+    assert parse_summary_size(legacy) == expected
+
+
+def test_invalid_summary_size() -> None:
+    with pytest.raises(ValueError):
+        parse_summary_size("huge")
 
 
 def test_invalid_asr() -> None:

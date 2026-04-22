@@ -17,112 +17,324 @@
         </div>
       </header>
 
-      <main class="main">
-        <section class="panel" aria-labelledby="upload-heading">
-          <h2 id="upload-heading" class="panel__title">Файл и параметры</h2>
-
-          <div
-            id="dropzone"
-            class="dropzone"
-            tabindex="0"
-            role="button"
-            aria-label="Область загрузки аудио"
-          >
-            <input
-              id="file-input"
-              type="file"
-              accept=".wav,.mp3,.m4a,.flac,audio/*"
-              hidden
-            />
-            <div class="dropzone__icon" aria-hidden="true">⬆</div>
-            <p class="dropzone__text">
-              Перетащите аудио сюда или <span class="link">выберите файл</span>
-            </p>
-            <p id="file-name" class="dropzone__file muted"></p>
-          </div>
-
-          <div class="grid">
-            <label class="field">
-              <span class="field__label">Модель транскрибации</span>
-              <select id="asr-model" class="select">
-                <option value="fast">Быстро (small)</option>
-                <option value="medium" selected>Средне (medium)</option>
-                <option value="high">Качество (large-v3)</option>
-              </select>
-            </label>
-            <label class="field">
-              <span class="field__label">Длина саммари</span>
-              <select id="summary-size" class="select">
-                <option value="short">Коротко</option>
-                <option value="medium" selected>Средне</option>
-                <option value="long">Развёрнуто</option>
-              </select>
-            </label>
-          </div>
-
-          <div class="actions">
-            <button id="btn-submit" type="button" class="btn btn--primary" disabled>
-              Запустить
-            </button>
-            <button id="btn-reset" type="button" class="btn btn--ghost" hidden>
-              Новая задача
+      <div class="layout">
+        <aside class="sidebar" aria-labelledby="history-heading">
+          <div class="sidebar__head">
+            <h2 id="history-heading" class="sidebar__title">История</h2>
+            <button id="btn-refresh-history" type="button" class="btn btn--small">
+              Обновить
             </button>
           </div>
-          <p id="form-error" class="banner banner--error" hidden></p>
-        </section>
-
-        <section id="progress-section" class="panel panel--progress" hidden>
-          <h2 class="panel__title">Прогресс</h2>
-          <p id="status-line" class="status-line muted"></p>
-          <ol class="steps" aria-label="Этапы обработки">
-            <li class="step" data-stage="upload">
-              <span class="step__dot"></span>
-              <span class="step__label">Файл</span>
-            </li>
-            <li class="step" data-stage="asr">
-              <span class="step__dot"></span>
-              <span class="step__label">Транскрибация</span>
-            </li>
-            <li class="step" data-stage="summarize">
-              <span class="step__dot"></span>
-              <span class="step__label">Саммари</span>
-            </li>
-          </ol>
-          <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100">
-            <div id="progress-fill" class="progress-bar__fill"></div>
+          <div class="sidebar__toolbar" id="history-toolbar" hidden>
+            <label class="history-select-all">
+              <input
+                type="checkbox"
+                id="history-select-all"
+                class="history-select-all__input"
+                aria-label="Выбрать все задачи в списке"
+              />
+              <span class="history-select-all__text">Все</span>
+            </label>
+            <button
+              type="button"
+              id="btn-bulk-delete-open"
+              class="btn btn--small btn--danger"
+              disabled
+              aria-describedby="history-bulk-hint"
+            >
+              Удалить выбранное
+            </button>
           </div>
-        </section>
+          <p id="history-bulk-hint" class="muted sidebar__hint">
+            Аудиофайл и результаты задачи удаляются с диска без восстановления.
+          </p>
+          <ul id="history-list" class="history-list" aria-multiselectable="true"></ul>
+          <p id="history-empty" class="muted history-empty" hidden>Нет задач</p>
+          <p
+            id="history-feedback"
+            class="sidebar__feedback"
+            role="status"
+            aria-live="polite"
+            hidden
+          ></p>
+        </aside>
 
-        <section id="results-section" class="panel" hidden>
-          <h2 class="panel__title">Результаты</h2>
-          <div id="meta-line" class="meta muted"></div>
-          <div class="result-grid">
-            <article class="result">
-              <div class="result__head">
-                <h3 class="result__title">Транскрипт</h3>
-                <button id="btn-copy-transcript" type="button" class="btn btn--small">
-                  Копировать
+        <div class="layout__main">
+          <main class="main">
+            <section class="panel" aria-labelledby="upload-heading">
+              <h2 id="upload-heading" class="panel__title">Файл и параметры</h2>
+
+              <div
+                id="dropzone"
+                class="dropzone"
+                tabindex="0"
+                role="button"
+                aria-label="Область загрузки аудио"
+              >
+                <input
+                  id="file-input"
+                  type="file"
+                  accept=".wav,.mp3,.m4a,.flac,audio/*"
+                  hidden
+                />
+                <div class="dropzone__icon" aria-hidden="true">⬆</div>
+                <p class="dropzone__text">
+                  Перетащите аудио сюда или <span class="link">выберите файл</span>
+                </p>
+                <p id="file-name" class="dropzone__file muted"></p>
+              </div>
+
+              <div class="grid">
+                <label class="field">
+                  <span class="field__label">Модель транскрибации</span>
+                  <select id="asr-model" class="select">
+                    <option value="fast">Быстро (small)</option>
+                    <option value="medium" selected>Средне (medium)</option>
+                    <option value="high">Качество (large-v3)</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span class="field__label">Тип саммари</span>
+                  <select id="summary-size" class="select">
+                    <option value="gist" selected>О чём речь</option>
+                    <option value="executive">Резюме для руководства</option>
+                    <option value="meeting">Полный доклад о встрече</option>
+                  </select>
+                </label>
+              </div>
+
+              <label class="field field--block">
+                <span class="field__label"
+                  >Свой промпт для LLM (необязательно)</span
+                >
+                <textarea
+                  id="custom-prompt"
+                  class="textarea"
+                  rows="3"
+                  placeholder="Если заполнено — один запрос к Ollama с вашей инструкцией и транскриптом. Иначе — пресет по полю «Тип саммари»."
+                ></textarea>
+              </label>
+
+              <div class="actions">
+                <button id="btn-submit" type="button" class="btn btn--primary" disabled>
+                  Запустить
+                </button>
+                <button id="btn-reset" type="button" class="btn btn--ghost" hidden>
+                  Новая задача
+                </button>
+                <button
+                  id="btn-requeue-open"
+                  type="button"
+                  class="btn btn--ghost"
+                  hidden
+                >
+                  Перезапустить файл…
+                </button>
+                <button
+                  id="btn-summarize-only-open"
+                  type="button"
+                  class="btn btn--ghost"
+                  hidden
+                  title="Повторить только Ollama по уже сохранённому транскрипту"
+                >
+                  Только саммари…
                 </button>
               </div>
-              <pre id="out-transcript" class="result__body"></pre>
-            </article>
-            <article class="result">
-              <div class="result__head">
-                <h3 class="result__title">Саммари</h3>
-                <button id="btn-copy-summary" type="button" class="btn btn--small">
-                  Копировать
-                </button>
-              </div>
-              <pre id="out-summary" class="result__body"></pre>
-            </article>
-          </div>
-        </section>
-      </main>
+              <p id="form-error" class="banner banner--error" hidden></p>
+            </section>
 
-      <footer class="footer muted">
-        API: <code>/jobs</code> · <a href="/docs">OpenAPI</a>
-      </footer>
+            <section id="progress-section" class="panel panel--progress" hidden>
+              <h2 class="panel__title">Прогресс</h2>
+              <p id="status-line" class="status-line muted"></p>
+              <ol class="steps" aria-label="Этапы обработки">
+                <li class="step" data-stage="upload">
+                  <span class="step__dot"></span>
+                  <span class="step__label">Файл</span>
+                </li>
+                <li class="step" data-stage="asr">
+                  <span class="step__dot"></span>
+                  <span class="step__label">Транскрибация</span>
+                </li>
+                <li class="step" data-stage="summarize">
+                  <span class="step__dot"></span>
+                  <span class="step__label">Саммари</span>
+                </li>
+              </ol>
+              <div
+                class="progress-bar"
+                role="progressbar"
+                aria-valuemin="0"
+                aria-valuemax="100"
+              >
+                <div id="progress-fill" class="progress-bar__fill"></div>
+              </div>
+            </section>
+
+            <section id="results-section" class="panel" hidden>
+              <h2 class="panel__title">Результаты</h2>
+              <div id="meta-line" class="meta muted"></div>
+              <div class="result-grid">
+                <article class="result">
+                  <div class="result__head">
+                    <h3 class="result__title">Транскрипт</h3>
+                    <div class="result__actions">
+                      <button id="btn-copy-transcript" type="button" class="btn btn--small">
+                        Копировать
+                      </button>
+                      <button id="btn-dl-transcript-txt" type="button" class="btn btn--small">
+                        .txt
+                      </button>
+                      <button
+                        id="btn-dl-transcript-doc"
+                        type="button"
+                        class="btn btn--small"
+                        title="Файл .doc для открытия в Microsoft Word"
+                      >
+                        Word
+                      </button>
+                    </div>
+                  </div>
+                  <pre id="out-transcript" class="result__body"></pre>
+                </article>
+                <article class="result">
+                  <div class="result__head">
+                    <h3 class="result__title">Саммари</h3>
+                    <div class="result__actions">
+                      <button id="btn-copy-summary" type="button" class="btn btn--small">
+                        Копировать
+                      </button>
+                      <button id="btn-dl-summary-txt" type="button" class="btn btn--small">
+                        .txt
+                      </button>
+                      <button
+                        id="btn-dl-summary-doc"
+                        type="button"
+                        class="btn btn--small"
+                        title="Файл .doc для открытия в Microsoft Word"
+                      >
+                        Word
+                      </button>
+                    </div>
+                  </div>
+                  <pre id="out-summary" class="result__body"></pre>
+                </article>
+              </div>
+            </section>
+          </main>
+
+          <footer class="footer muted">
+            API: <code>/jobs</code> · <code>POST /jobs/bulk-delete</code> ·
+            <a href="/docs">OpenAPI</a>
+          </footer>
+        </div>
+      </div>
     </div>
+
+    <div id="requeue-modal" class="modal" hidden>
+      <div class="modal__backdrop" id="requeue-modal-backdrop"></div>
+      <div
+        class="modal__box panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="requeue-modal-title"
+      >
+        <h3 id="requeue-modal-title" class="panel__title">Перезапуск с другими параметрами</h3>
+        <p class="muted" id="requeue-modal-hint"></p>
+        <div class="grid">
+          <label class="field">
+            <span class="field__label">Модель транскрибации</span>
+            <select id="requeue-asr" class="select">
+              <option value="fast">Быстро (small)</option>
+              <option value="medium">Средне (medium)</option>
+              <option value="high">Качество (large-v3)</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="field__label">Тип саммари</span>
+            <select id="requeue-summary" class="select">
+              <option value="gist">О чём речь</option>
+              <option value="executive" selected>Резюме для руководства</option>
+              <option value="meeting">Полный доклад о встрече</option>
+            </select>
+          </label>
+        </div>
+        <label class="field field--block">
+          <span class="field__label">Свой промпт (необязательно)</span>
+          <textarea id="requeue-custom" class="textarea" rows="2"></textarea>
+        </label>
+        <div class="actions">
+          <button type="button" class="btn btn--primary" id="requeue-submit">
+            В очередь
+          </button>
+          <button type="button" class="btn btn--ghost" id="requeue-cancel">
+            Отмена
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="bulk-delete-modal" class="modal" hidden>
+      <div class="modal__backdrop" id="bulk-delete-modal-backdrop"></div>
+      <div
+        class="modal__box panel"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="bulk-delete-modal-title"
+        aria-describedby="bulk-delete-modal-desc"
+      >
+        <h3 id="bulk-delete-modal-title" class="panel__title">Удалить задачи?</h3>
+        <p id="bulk-delete-modal-desc" class="muted"></p>
+        <div class="actions actions--tight-top">
+          <button type="button" class="btn btn--danger" id="bulk-delete-confirm">
+            Удалить
+          </button>
+          <button type="button" class="btn btn--ghost" id="bulk-delete-cancel">
+            Отмена
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="summarize-only-modal" class="modal" hidden>
+      <div class="modal__backdrop" id="summarize-only-modal-backdrop"></div>
+      <div
+        class="modal__box panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="summarize-only-modal-title"
+      >
+        <h3 id="summarize-only-modal-title" class="panel__title">
+          Саммари без повторной транскрибации
+        </h3>
+        <p class="muted" id="summarize-only-modal-hint"></p>
+        <p class="muted">
+          Используется уже сохранённый транскрипт. Whisper не запускается.
+        </p>
+        <div class="grid">
+          <label class="field">
+            <span class="field__label">Тип саммари</span>
+            <select id="summarize-only-summary" class="select">
+              <option value="gist">О чём речь</option>
+              <option value="executive" selected>Резюме для руководства</option>
+              <option value="meeting">Полный доклад о встрече</option>
+            </select>
+          </label>
+        </div>
+        <label class="field field--block">
+          <span class="field__label">Свой промпт (необязательно)</span>
+          <textarea id="summarize-only-custom" class="textarea" rows="3"></textarea>
+        </label>
+        <div class="actions">
+          <button type="button" class="btn btn--primary" id="summarize-only-submit">
+            В очередь
+          </button>
+          <button type="button" class="btn btn--ghost" id="summarize-only-cancel">
+            Отмена
+          </button>
+        </div>
+      </div>
+    </div>
+
     <script src="app.js"></script>
   </body>
 </html>

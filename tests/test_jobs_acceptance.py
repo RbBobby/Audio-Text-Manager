@@ -58,7 +58,7 @@ def _fake_pipeline(job_id: str, settings: Settings) -> None:
     )
 
 
-@pytest.mark.parametrize("summary_size", ("short", "medium", "long"))
+@pytest.mark.parametrize("summary_size", ("gist", "executive", "meeting"))
 def test_e2e_job_done_and_result(
     monkeypatch: pytest.MonkeyPatch,
     tiny_audio: Path,
@@ -135,7 +135,7 @@ def test_three_audio_container_extensions(
             r = client.post(
                 "/jobs",
                 files={"audio_file": (f"test{ext}", f, mime)},
-                data={"asr_model": "fast", "summary_size": "short"},
+                data={"asr_model": "fast", "summary_size": "gist"},
             )
         assert r.status_code == 200, r.text
 
@@ -154,7 +154,7 @@ def test_result_409_while_processing(
             r = client.post(
                 "/jobs",
                 files={"audio_file": ("x.wav", f, "audio/wav")},
-                data={"asr_model": "fast", "summary_size": "short"},
+                data={"asr_model": "fast", "summary_size": "gist"},
             )
         job_id = r.json()["job_id"]
         deadline = time.time() + 10
@@ -177,7 +177,7 @@ def test_reject_bad_extension() -> None:
         r = client.post(
             "/jobs",
             files={"audio_file": ("x.ogg", b"abc", "audio/ogg")},
-            data={"asr_model": "fast", "summary_size": "short"},
+            data={"asr_model": "fast", "summary_size": "gist"},
         )
     assert r.status_code == 400
 
