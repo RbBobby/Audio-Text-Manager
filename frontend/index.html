@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Audio Text Manager</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="header">
+        <div class="header__inner">
+          <h1 class="title">Audio Text Manager</h1>
+          <p class="subtitle">
+            Локальная транскрибация и саммари. Форматы: wav, mp3, m4a, flac.
+          </p>
+        </div>
+      </header>
+
+      <main class="main">
+        <section class="panel" aria-labelledby="upload-heading">
+          <h2 id="upload-heading" class="panel__title">Файл и параметры</h2>
+
+          <div
+            id="dropzone"
+            class="dropzone"
+            tabindex="0"
+            role="button"
+            aria-label="Область загрузки аудио"
+          >
+            <input
+              id="file-input"
+              type="file"
+              accept=".wav,.mp3,.m4a,.flac,audio/*"
+              hidden
+            />
+            <div class="dropzone__icon" aria-hidden="true">⬆</div>
+            <p class="dropzone__text">
+              Перетащите аудио сюда или <span class="link">выберите файл</span>
+            </p>
+            <p id="file-name" class="dropzone__file muted"></p>
+          </div>
+
+          <div class="grid">
+            <label class="field">
+              <span class="field__label">Модель транскрибации</span>
+              <select id="asr-model" class="select">
+                <option value="fast">Быстро (small)</option>
+                <option value="medium" selected>Средне (medium)</option>
+                <option value="high">Качество (large-v3)</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field__label">Длина саммари</span>
+              <select id="summary-size" class="select">
+                <option value="short">Коротко</option>
+                <option value="medium" selected>Средне</option>
+                <option value="long">Развёрнуто</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="actions">
+            <button id="btn-submit" type="button" class="btn btn--primary" disabled>
+              Запустить
+            </button>
+            <button id="btn-reset" type="button" class="btn btn--ghost" hidden>
+              Новая задача
+            </button>
+          </div>
+          <p id="form-error" class="banner banner--error" hidden></p>
+        </section>
+
+        <section id="progress-section" class="panel panel--progress" hidden>
+          <h2 class="panel__title">Прогресс</h2>
+          <p id="status-line" class="status-line muted"></p>
+          <ol class="steps" aria-label="Этапы обработки">
+            <li class="step" data-stage="upload">
+              <span class="step__dot"></span>
+              <span class="step__label">Файл</span>
+            </li>
+            <li class="step" data-stage="asr">
+              <span class="step__dot"></span>
+              <span class="step__label">Транскрибация</span>
+            </li>
+            <li class="step" data-stage="summarize">
+              <span class="step__dot"></span>
+              <span class="step__label">Саммари</span>
+            </li>
+          </ol>
+          <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+            <div id="progress-fill" class="progress-bar__fill"></div>
+          </div>
+        </section>
+
+        <section id="results-section" class="panel" hidden>
+          <h2 class="panel__title">Результаты</h2>
+          <div id="meta-line" class="meta muted"></div>
+          <div class="result-grid">
+            <article class="result">
+              <div class="result__head">
+                <h3 class="result__title">Транскрипт</h3>
+                <button id="btn-copy-transcript" type="button" class="btn btn--small">
+                  Копировать
+                </button>
+              </div>
+              <pre id="out-transcript" class="result__body"></pre>
+            </article>
+            <article class="result">
+              <div class="result__head">
+                <h3 class="result__title">Саммари</h3>
+                <button id="btn-copy-summary" type="button" class="btn btn--small">
+                  Копировать
+                </button>
+              </div>
+              <pre id="out-summary" class="result__body"></pre>
+            </article>
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer muted">
+        API: <code>/jobs</code> · <a href="/docs">OpenAPI</a>
+      </footer>
+    </div>
+    <script src="app.js"></script>
+  </body>
+</html>

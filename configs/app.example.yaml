@@ -1,0 +1,54 @@
+# Copy to app.yaml and adjust paths for your machine.
+api:
+  host: "127.0.0.1"
+  port: 8000
+
+paths:
+  data_root: "data"
+  uploads_dir: "data/uploads"
+  results_dir: "data/results"
+  # SQLite job store (override with env ATM_SQLITE_PATH, default: ${data_root}/app.db)
+  sqlite_path: "data/app.db"
+
+worker:
+  max_concurrent_jobs: 1
+
+# ASR (backend.app.asr.Transcriber)
+asr:
+  device: "auto"
+  compute_type: "default"
+  whisper_download_root: null
+  local_files_only: false
+  vad_filter: true
+
+# Summarization (Ollama, backend.app.summary)
+ollama:
+  base_url: "http://127.0.0.1:11434"
+  model: "qwen2.5:14b-instruct-q4_K_M"
+  request_timeout_sec: 900
+  # Env: ATM_OLLAMA_NUM_CTX (default 8192) — меньше KV/RAM; при OOM уменьшить (4096).
+  # Env: ATM_OLLAMA_NUM_PREDICT (default 2048) — лимит ответа; больше значение = меньше места под вход.
+  # Саммари: при HTTP 500 / падении раннера Ollama автоматически снижаются num_ctx/num_predict и
+  # при необходимости ужимается user-сообщение; при полном провале single-shot включается map-reduce.
+  # Apple M5 + новый macOS: Ollama может падать в ggml_metal (half/bfloat в MetalPerformancePrimitives);
+  # num_gpu=0 в API не отключает этот шаг. Обход — переменная на процессе `ollama serve`:
+  #   GGML_METAL_TENSOR_DISABLE=1 ollama serve
+  # Либо ждать фикса в релизе Ollama (github.com/ollama/ollama/issues/14432). Cask/.app не гарантирует обход.
+  # Env: ATM_OLLAMA_NUM_GPU — сколько слоёв на GPU; 0 = без offload. Пусто на M5 → 0.
+  # Env: ATM_OLLAMA_ALLOW_METAL=1 — не задавать num_gpu (оставить по умолчанию Ollama).
+
+summary:
+  chunk_chars: 10000
+  chunk_overlap: 400
+  map_threshold_chars: 12000
+  # Env: ATM_SUMMARIZER_MAX_INPUT_CHARS (default 80000) — обрезка транскрипта перед LLM; 0 = без лимита.
+  # Env: ATM_SUMMARIZER_MAX_REDUCE_CHARS (default 28000) — лимит финального reduce/single prompt.
+  # Env: ATM_SUMMARIZER_MAP_CHUNK_MAX_CHARS (default 8000) — верхняя граница куска в map-фазе.
+
+# Runtime env (read by backend.app.settings)
+# ATM_OFFLINE=1 — Whisper local_files_only, httpx trust_env=false for Ollama
+# ATM_WHISPER_LOCAL_ONLY=1 — same for Whisper without full offline
+# ATM_WHISPER_DOWNLOAD_ROOT — cache dir for CTranslate2 models
+# ATM_MAX_AUDIO_DURATION_SEC — reject longer files (0 = off); needs ffprobe
+# ATM_LOG_LEVEL — DEBUG, INFO, WARNING, ERROR
+# ATM_OLLAMA_DISABLE_TRUST_ENV=1 — httpx Client(trust_env=False)

@@ -1,0 +1,51 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+pip-wheel-metadata/
+
+# Test / type / lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# OS & editors
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+
+# Logs
+*.log
+
+# Runtime data (keep layout via .gitkeep)
+/data/uploads/*
+!/data/uploads/.gitkeep
+/data/results/*
+!/data/results/.gitkeep
+/data/*.db
+/data/*.db-journal
+/data/*.db-wal
+/data/*.db-shm
