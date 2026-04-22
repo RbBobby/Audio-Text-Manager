@@ -15,6 +15,26 @@
 
 ---
 
+## Whisper и faster-whisper
+
+**Whisper** в этом проекте — модель **распознавания речи** в архитектуре [OpenAI Whisper](https://github.com/openai/whisper). Она **не** вызывается «как в оригинальной статье» через чистый PyTorch в рантайме джоба: для инференса используется **[faster-whisper](https://github.com/SYSTRAN/faster-whisper)** на движке **[CTranslate2](https://github.com/OpenNMT/CTranslate2)** (ускорение на CPU и при наличии — на GPU).
+
+| Что | Где в проекте / как задаётся |
+|-----|------------------------------|
+| Зависимость | `faster-whisper` в `pyproject.toml`; ставится вместе с `pip install -e .` |
+| Нормализация аудио перед ASR | **ffmpeg** (обязателен в `PATH`) — см. `backend/app/asr/ffmpeg_normalize.py` |
+| Пресеты скорости/качества | `backend/app/asr/presets.py` → в API поле `asr_model`: `fast` / `medium` / `high` |
+| Соответствие чекпоинтам Systran | `fast` → `small`, `medium` → `medium`, `high` → `large-v3` |
+| Кэш весов и офлайн | Переменные `ATM_WHISPER_DOWNLOAD_ROOT`, `ATM_WHISPER_LOCAL_ONLY`, `ATM_OFFLINE` (см. ниже и `configs/app.example.yaml`) |
+
+**Первый запуск транскрибации:** веса модели **скачиваются автоматически** (как правило в кэш Hugging Face в домашнем каталоге пользователя, если не задан `ATM_WHISPER_DOWNLOAD_ROOT`). Нужен доступ в интернет, если не включён офлайн-режим.
+
+**Ориентир по диску под веса Whisper:** от порядка **~1 GB** (`small`) до **нескольких GB** (`large-v3`), плюс отдельно место под модель **Ollama** для саммари.
+
+**Офлайн только для Whisper:** `ATM_WHISPER_LOCAL_ONLY=1` — без загрузок из сети; веса должны уже быть в кэше или в `ATM_WHISPER_DOWNLOAD_ROOT`. Полный офлайн приложения: `ATM_OFFLINE=1` (также влияет на Ollama, см. `settings.py`).
+
+---
+
 ## Установка с нуля
 
 Общий порядок: **Python → зависимости проекта → ffmpeg → Ollama → модель Ollama → запуск сервера**. Каталог репозитория в примерах: `audio-text-manager`.
@@ -172,29 +192,17 @@ uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 
 ---
 
-### Whisper (faster-whisper) и диск
+### Офлайн и переменные для Whisper (напоминание)
 
-Модели **Systran/faster-whisper** (CTranslate2) при **первом** распознавании скачиваются в кэш (часто каталог пользователя Hugging Face) или в `ATM_WHISPER_DOWNLOAD_ROOT`. Запас по диску: порядка **нескольких ГБ** под Whisper + выбранную LLM в Ollama.
-
-Пресеты ASR в API:
-
-| `asr_model` (форма) | Модель Whisper |
-|---------------------|------------------|
-| `fast` | `small` |
-| `medium` | `medium` |
-| `high` | `large-v3` |
-
-Полностью офлайн (без скачивания из сети):
+Полный офлайн и только Whisper — см. раздел **«Whisper и faster-whisper»** выше. Примеры:
 
 ```bash
 export ATM_OFFLINE=1          # macOS / Linux
-# Windows cmd:
-#   set ATM_OFFLINE=1
-# Windows PowerShell:
-#   $env:ATM_OFFLINE="1"
+# Windows cmd:   set ATM_OFFLINE=1
+# PowerShell:    $env:ATM_OFFLINE="1"
 ```
 
-Или только Whisper: `ATM_WHISPER_LOCAL_ONLY=1`. Нужны заранее скачанные веса в кэше / в `ATM_WHISPER_DOWNLOAD_ROOT`.
+Только без скачивания весов Whisper: `ATM_WHISPER_LOCAL_ONLY=1` (веса уже в кэше или в `ATM_WHISPER_DOWNLOAD_ROOT`).
 
 ---
 
@@ -214,7 +222,8 @@ export ATM_OFFLINE=1          # macOS / Linux
 | `ATM_OLLAMA_BASE_URL` | URL Ollama (по умолчанию `http://127.0.0.1:11434`) |
 | `ATM_OLLAMA_MODEL` | тег модели в Ollama |
 | `ATM_OFFLINE` | офлайн: Whisper без скачивания, Ollama `trust_env=false` |
-| `ATM_WHISPER_DOWNLOAD_ROOT` | каталог кэша CTranslate2 |
+| `ATM_WHISPER_LOCAL_ONLY` | только локальные веса Whisper (без загрузки из сети) |
+| `ATM_WHISPER_DOWNLOAD_ROOT` | каталог кэша CTranslate2 / весов Whisper (опционально) |
 | `ATM_OLLAMA_NUM_CTX`, `ATM_OLLAMA_NUM_PREDICT` | контекст и лимит ответа для саммари |
 | `ATM_LOG_LEVEL` | `DEBUG`, `INFO`, … |
 
