@@ -36,7 +36,7 @@ class SummaryResult:
     text: str
     size: SummarySize
     model: str
-    mode: Literal["single", "map_reduce"]
+    mode: Literal["single", "map_reduce", "custom"]
     source_chunks: int
 
 
@@ -70,6 +70,7 @@ class Summarizer:
         self._ollama_num_ctx = ollama_num_ctx
         self._ollama_num_predict = ollama_num_predict
         self._adaptive_max_rounds = 8
+        self._prompt_budget_chars = _prompt_char_budget(ollama_num_ctx, ollama_num_predict)
         logger.debug(
             "Summarizer limits: ctx=%s predict=%s budget_chars=%s max_reduce=%s "
             "map_chunk=%s chunk=%s single_shot_limit=%s",
@@ -80,6 +81,51 @@ class Summarizer:
             self._map_chunk_max,
             self._chunk_chars,
             self._single_shot_char_limit,
+        )
+
+    def summarize_custom_prompt(
+        self, transcript: str, custom_prompt: str, *, nominal_size: SummarySize
+    ) -> SummaryResult:
+        """Single Ollama chat: fixed system message + user = instructions + transcript (clipped)."""
+        instr = (custom_prompt or "").strip()
+        if not instr:
+            return SummaryResult(
+                text="",
+                size=nominal_size,
+                model=self._client.model,
+                mode="custom",
+                source_chunks=0,
+            )
+        txt = transcript.strip()
+        reserve = len(instr) + 120
+        max_trans = max(500, self._prompt_budget_chars - reserve)
+        if len(txt) > max_trans:
+            logger.warning(
+                "Custom prompt path: clipping transcript %d -> %d chars for context",
+                len(txt),
+                max_trans,
+            )
+            txt = clip_head_tail(txt, max_trans)
+        body = f"{instr}\n\n--- Транскрипт ---\n{txt}"
+        if len(body) > self._max_reduce_chars:
+            body = clip_head_tail(body, self._max_reduce_chars)
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You follow the user's instructions precisely. "
+                    "Answer in the same language as the transcript unless asked otherwise."
+                ),
+            },
+            {"role": "user", "content": body},
+        ]
+        out = self._adaptive_chat(messages, tag="summary-custom")
+        return SummaryResult(
+            text=out.strip(),
+            size=nominal_size,
+            model=self._client.model,
+            mode="custom",
+            source_chunks=1,
         )
 
     def _adaptive_chat(

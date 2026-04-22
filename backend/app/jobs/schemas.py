@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class JobCreateResponse(BaseModel):
@@ -24,3 +24,56 @@ class JobResultResponse(BaseModel):
     summary: str
     timings: dict[str, Any]
     model_info: dict[str, Any]
+
+
+class JobTranscriptResponse(BaseModel):
+    job_id: str
+    transcript: str
+    status: str
+    stages: dict[str, str]
+
+
+class JobListItem(BaseModel):
+    id: str
+    status: str
+    asr_preset: str
+    summary_size: str
+    original_filename: str | None
+    stages: dict[str, str]
+    created_at: str
+    updated_at: str
+
+
+class JobListResponse(BaseModel):
+    jobs: list[JobListItem]
+    limit: int
+    offset: int
+
+
+class JobRequeueBody(BaseModel):
+    asr_model: str = Field(..., description="ASR preset: fast, medium, high")
+    summary_size: str = Field(..., description="short, medium, long")
+    custom_prompt: str | None = Field(
+        default=None,
+        description="Optional; set to null to clear custom LLM instructions",
+    )
+
+
+class JobRequeueResponse(BaseModel):
+    job_id: str
+    status: str
+
+
+class JobSummarizeOnlyBody(BaseModel):
+    """Повторный саммари по уже сохранённому транскрипту (ASR не запускается)."""
+
+    summary_size: str = Field(..., description="short, medium, long")
+    custom_prompt: str | None = Field(
+        default=None,
+        description="Опционально: свой промпт; иначе пресеты по summary_size",
+    )
+
+
+class JobSummarizeOnlyResponse(BaseModel):
+    job_id: str
+    status: str

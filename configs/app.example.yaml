@@ -21,6 +21,9 @@ asr:
   local_files_only: false
   vad_filter: true
 
+# API джобов (см. README): GET /jobs, GET /jobs/{id}/transcript (ранний транскрипт),
+# POST /jobs/{id}/requeue, опциональное поле формы custom_prompt при POST /jobs.
+
 # Summarization (Ollama, backend.app.summary)
 ollama:
   base_url: "http://127.0.0.1:11434"

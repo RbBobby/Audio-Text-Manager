@@ -58,9 +58,142 @@ code {
 }
 
 .page {
-  max-width: 960px;
+  max-width: 1180px;
   margin: 0 auto;
   padding: 1.5rem 1.25rem 3rem;
+}
+
+.layout {
+  display: flex;
+  gap: 1.35rem;
+  align-items: flex-start;
+}
+
+.layout__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.85rem 0.75rem;
+  max-height: calc(100vh - 8rem);
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+}
+
+.sidebar__title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 120px;
+}
+
+.history-item {
+  padding: 0.55rem 0.45rem;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  word-break: break-word;
+  border: 1px solid transparent;
+}
+
+.history-item:hover {
+  background: var(--surface-2);
+}
+
+.history-item--active {
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+
+.history-empty {
+  margin: 0.35rem 0 0;
+  font-size: 0.85rem;
+}
+
+.field--block {
+  display: block;
+  margin-top: 1rem;
+}
+
+.textarea {
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 0.9rem;
+  resize: vertical;
+  min-height: 4rem;
+}
+
+.textarea:focus {
+  outline: 2px solid var(--accent-dim);
+  outline-offset: 1px;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.modal[hidden] {
+  display: none !important;
+}
+
+.modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.modal__box {
+  position: relative;
+  z-index: 1;
+  max-width: 420px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+@media (max-width: 860px) {
+  .layout {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+    max-height: 220px;
+  }
 }
 
 .header {
