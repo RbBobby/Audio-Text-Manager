@@ -19,7 +19,7 @@
 ### 1. Клонирование и виртуальное окружение
 
 ```bash
-git clone <URL-репозитория> audio-text-manager
+git clone https://github.com/RbBobby/Audio-Text-Manager.git
 cd audio-text-manager
 
 python3 -m venv .venv
