@@ -15,9 +15,29 @@
 
 ---
 
+## Whisper и faster-whisper
+
+**Whisper** в этом проекте — модель **распознавания речи** в архитектуре [OpenAI Whisper](https://github.com/openai/whisper). Она **не** вызывается «как в оригинальной статье» через чистый PyTorch в рантайме джоба: для инференса используется **[faster-whisper](https://github.com/SYSTRAN/faster-whisper)** на движке **[CTranslate2](https://github.com/OpenNMT/CTranslate2)** (ускорение на CPU и при наличии — на GPU).
+
+| Что | Где в проекте / как задаётся |
+|-----|------------------------------|
+| Зависимость | `faster-whisper` в `pyproject.toml`; ставится вместе с `pip install -e .` |
+| Нормализация аудио перед ASR | **ffmpeg** (обязателен в `PATH`) — см. `backend/app/asr/ffmpeg_normalize.py` |
+| Пресеты скорости/качества | `backend/app/asr/presets.py` → в API поле `asr_model`: `fast` / `medium` / `high` |
+| Соответствие чекпоинтам Systran | `fast` → `small`, `medium` → `medium`, `high` → `large-v3` |
+| Кэш весов и офлайн | Переменные `ATM_WHISPER_DOWNLOAD_ROOT`, `ATM_WHISPER_LOCAL_ONLY`, `ATM_OFFLINE` (см. ниже и `configs/app.example.yaml`) |
+
+**Первый запуск транскрибации:** веса модели **скачиваются автоматически** (как правило в кэш Hugging Face в домашнем каталоге пользователя, если не задан `ATM_WHISPER_DOWNLOAD_ROOT`). Нужен доступ в интернет, если не включён офлайн-режим.
+
+**Ориентир по диску под веса Whisper:** от порядка **~1 GB** (`small`) до **нескольких GB** (`large-v3`), плюс отдельно место под модель **Ollama** для саммари.
+
+**Офлайн только для Whisper:** `ATM_WHISPER_LOCAL_ONLY=1` — без загрузок из сети; веса должны уже быть в кэше или в `ATM_WHISPER_DOWNLOAD_ROOT`. Полный офлайн приложения: `ATM_OFFLINE=1` (также влияет на Ollama, см. `settings.py`).
+
+---
+
 ## Установка с нуля
 
-Общий порядок: **Python → зависимости проекта → ffmpeg → Ollama → модель Ollama → запуск сервера**. Каталог репозитория в примерах: `audio-text-manager`.
+Общий порядок: **Python → зависимости проекта** (в т.ч. **faster-whisper / Whisper** через `pip`) **→ ffmpeg → Ollama → модель Ollama → запуск сервера**. Каталог репозитория в примерах: `audio-text-manager`.
 
 ### Шаг 0. Клонирование и виртуальное окружение (все ОС)
 
@@ -47,6 +67,8 @@ pip install -e ".[dev]"
 
 Флаг `-e` (editable) нужен, чтобы импорт `backend.app` работал из корня проекта. Без тестов: `pip install -e .`
 
+На этом шаге в виртуальное окружение попадает пакет **`faster-whisper`** (движок **Whisper** для транскрибации в проекте). Отдельной команды вида `brew install whisper` для него нет — только `pip` и зависимости из `pyproject.toml`.
+
 ---
 
 ### Установка на macOS
@@ -61,7 +83,17 @@ pip install -e ".[dev]"
    ```  
    Проверка: `ffmpeg -version` и `ffprobe -version`
 
-3. **Ollama**  
+3. **Whisper (faster-whisper)** — транскрибация  
+   - Библиотека **уже установлена** на шаге 0 вместе с проектом (`pip install -e .` → зависимость `faster-whisper`). Это не отдельный продукт «Whisper.app», а Python-пакет поверх **CTranslate2**.  
+   - Для работы ASR **обязателен ffmpeg** (п. 2): без него нормализация аудио перед Whisper не выполнится.  
+   - **Веса** моделей Whisper (small / medium / large-v3 по пресету `asr_model`) при **первом** запуске распознавания скачиваются автоматически — нужен интернет; подробности и офлайн — в разделе [«Whisper и faster-whisper»](#whisper-и-faster-whisper).  
+   - Опционально задайте `ATM_WHISPER_DOWNLOAD_ROOT`, если кэш весов должен лежать не в домашнем каталоге по умолчанию.  
+   - Проверка импорта (из корня репозитория, **venv активирован**):  
+     ```bash
+     python -c "from faster_whisper import WhisperModel; print('faster-whisper OK')"
+     ```
+
+4. **Ollama**  
    - Установка: [ollama.com/download](https://ollama.com/download) (macOS) или `brew install --cask ollama`  
    - Запуск API (отдельное окно терминала):  
      ```bash
@@ -76,23 +108,23 @@ pip install -e ".[dev]"
      export ATM_OLLAMA_MODEL=qwen2.5:7b-instruct-q4_K_M
      ```
 
-4. **Apple Silicon и падения Ollama / Metal (HTTP 500, `llama runner process has terminated`)**  
+5. **Apple Silicon и падения Ollama / Metal (HTTP 500, `llama runner process has terminated`)**  
    Запуск сервера с отключением проблемного пути Metal:  
    ```bash
    GGML_METAL_TENSOR_DISABLE=1 ollama serve
    ```  
    Подробнее: [ollama/ollama#14432](https://github.com/ollama/ollama/issues/14432).
 
-5. **Запуск приложения** (корень репозитория, venv активирован, Ollama уже слушает порт):  
+6. **Запуск приложения** (корень репозитория, venv активирован, Ollama уже слушает порт):  
    ```bash
    uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
    ```
 
-6. **Проверка в браузере**  
+7. **Проверка в браузере**  
    - API: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)  
    - UI: [http://127.0.0.1:8000/app/](http://127.0.0.1:8000/app/) (если есть каталог `frontend/`)
 
-7. **Тесты (опционально)**  
+8. **Тесты (опционально)**  
    ```bash
    pytest
    ```
@@ -125,7 +157,15 @@ pip install -e ".[dev]"
    - [Scoop](https://scoop.sh/): `scoop install ffmpeg`  
    Новый терминал → `ffmpeg -version` и `ffprobe -version`
 
-4. **Ollama**  
+4. **Whisper (faster-whisper)** — транскрибация  
+   - Устанавливается **вместе с проектом** на шаге 2 (`pip install -e .` → `faster-whisper`). Отдельного установщика Whisper для ASR не требуется.  
+   - Нужны **ffmpeg** в PATH (шаг 3) и при первом распознавании — **интернет** для загрузки весов (или заранее подготовленный кэш / `ATM_WHISPER_DOWNLOAD_ROOT`, см. [раздел про Whisper](#whisper-и-faster-whisper)).  
+   - Проверка (venv активирован):  
+     ```bat
+     python -c "from faster_whisper import WhisperModel; print('faster-whisper OK')"
+     ```
+
+5. **Ollama**  
    - Скачайте установщик: [ollama.com/download/windows](https://ollama.com/download/windows)  
    - После установки Ollama обычно поднимает сервис в фоне; при необходимости запустите **Ollama** из меню Пуск или проверьте [документацию](https://github.com/ollama/ollama/blob/main/docs/windows.md).  
    - В **отдельном** окне `cmd`/`PowerShell` можно явно выполнить: `ollama serve`  
@@ -139,17 +179,17 @@ pip install -e ".[dev]"
      ```  
      В PowerShell: `$env:ATM_OLLAMA_MODEL="qwen2.5:7b-instruct-q4_K_M"`
 
-5. **Запуск приложения** (из корня репозитория, venv активирован):
+6. **Запуск приложения** (из корня репозитория, venv активирован):
 
    ```bat
    uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
    ```
 
-6. **Проверка**  
+7. **Проверка**  
    - [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)  
    - [http://127.0.0.1:8000/app/](http://127.0.0.1:8000/app/)
 
-7. **Тесты**  
+8. **Тесты**  
    ```bat
    pytest
    ```  
@@ -165,6 +205,7 @@ pip install -e ".[dev]"
 sudo apt update && sudo apt install -y ffmpeg python3 python3-venv
 python3 -m venv .venv && source .venv/bin/activate
 pip install -U pip && pip install -e ".[dev]"
+# Whisper (faster-whisper) уже в venv; проверка: python -c "from faster_whisper import WhisperModel; print('OK')"
 # Ollama: см. https://ollama.com/download/linux
 ollama pull qwen2.5:14b-instruct-q4_K_M
 uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
@@ -172,29 +213,17 @@ uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 
 ---
 
-### Whisper (faster-whisper) и диск
+### Офлайн и переменные для Whisper (напоминание)
 
-Модели **Systran/faster-whisper** (CTranslate2) при **первом** распознавании скачиваются в кэш (часто каталог пользователя Hugging Face) или в `ATM_WHISPER_DOWNLOAD_ROOT`. Запас по диску: порядка **нескольких ГБ** под Whisper + выбранную LLM в Ollama.
-
-Пресеты ASR в API:
-
-| `asr_model` (форма) | Модель Whisper |
-|---------------------|------------------|
-| `fast` | `small` |
-| `medium` | `medium` |
-| `high` | `large-v3` |
-
-Полностью офлайн (без скачивания из сети):
+Полный офлайн и только Whisper — см. раздел **«Whisper и faster-whisper»** выше. Примеры:
 
 ```bash
 export ATM_OFFLINE=1          # macOS / Linux
-# Windows cmd:
-#   set ATM_OFFLINE=1
-# Windows PowerShell:
-#   $env:ATM_OFFLINE="1"
+# Windows cmd:   set ATM_OFFLINE=1
+# PowerShell:    $env:ATM_OFFLINE="1"
 ```
 
-Или только Whisper: `ATM_WHISPER_LOCAL_ONLY=1`. Нужны заранее скачанные веса в кэше / в `ATM_WHISPER_DOWNLOAD_ROOT`.
+Только без скачивания весов Whisper: `ATM_WHISPER_LOCAL_ONLY=1` (веса уже в кэше или в `ATM_WHISPER_DOWNLOAD_ROOT`).
 
 ---
 
@@ -214,7 +243,8 @@ export ATM_OFFLINE=1          # macOS / Linux
 | `ATM_OLLAMA_BASE_URL` | URL Ollama (по умолчанию `http://127.0.0.1:11434`) |
 | `ATM_OLLAMA_MODEL` | тег модели в Ollama |
 | `ATM_OFFLINE` | офлайн: Whisper без скачивания, Ollama `trust_env=false` |
-| `ATM_WHISPER_DOWNLOAD_ROOT` | каталог кэша CTranslate2 |
+| `ATM_WHISPER_LOCAL_ONLY` | только локальные веса Whisper (без загрузки из сети) |
+| `ATM_WHISPER_DOWNLOAD_ROOT` | каталог кэша CTranslate2 / весов Whisper (опционально) |
 | `ATM_OLLAMA_NUM_CTX`, `ATM_OLLAMA_NUM_PREDICT` | контекст и лимит ответа для саммари |
 | `ATM_LOG_LEVEL` | `DEBUG`, `INFO`, … |
 
