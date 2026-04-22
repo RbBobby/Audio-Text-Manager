@@ -52,7 +52,10 @@ class JobListResponse(BaseModel):
 
 class JobRequeueBody(BaseModel):
     asr_model: str = Field(..., description="ASR preset: fast, medium, high")
-    summary_size: str = Field(..., description="short, medium, long")
+    summary_size: str = Field(
+        ...,
+        description="gist | executive | meeting (legacy: short, medium, long)",
+    )
     custom_prompt: str | None = Field(
         default=None,
         description="Optional; set to null to clear custom LLM instructions",
@@ -67,7 +70,10 @@ class JobRequeueResponse(BaseModel):
 class JobSummarizeOnlyBody(BaseModel):
     """Повторный саммари по уже сохранённому транскрипту (ASR не запускается)."""
 
-    summary_size: str = Field(..., description="short, medium, long")
+    summary_size: str = Field(
+        ...,
+        description="gist | executive | meeting (legacy: short, medium, long)",
+    )
     custom_prompt: str | None = Field(
         default=None,
         description="Опционально: свой промпт; иначе пресеты по summary_size",
@@ -77,3 +83,22 @@ class JobSummarizeOnlyBody(BaseModel):
 class JobSummarizeOnlyResponse(BaseModel):
     job_id: str
     status: str
+
+
+class JobBulkDeleteBody(BaseModel):
+    job_ids: list[str] = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="UUID задач для удаления (запись в БД и загруженный аудиофайл)",
+    )
+
+
+class JobBulkDeleteSkipped(BaseModel):
+    id: str
+    reason: str
+
+
+class JobBulkDeleteResponse(BaseModel):
+    deleted: list[str]
+    skipped: list[JobBulkDeleteSkipped]

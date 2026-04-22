@@ -25,8 +25,38 @@
               Обновить
             </button>
           </div>
-          <ul id="history-list" class="history-list"></ul>
+          <div class="sidebar__toolbar" id="history-toolbar" hidden>
+            <label class="history-select-all">
+              <input
+                type="checkbox"
+                id="history-select-all"
+                class="history-select-all__input"
+                aria-label="Выбрать все задачи в списке"
+              />
+              <span class="history-select-all__text">Все</span>
+            </label>
+            <button
+              type="button"
+              id="btn-bulk-delete-open"
+              class="btn btn--small btn--danger"
+              disabled
+              aria-describedby="history-bulk-hint"
+            >
+              Удалить выбранное
+            </button>
+          </div>
+          <p id="history-bulk-hint" class="muted sidebar__hint">
+            Аудиофайл и результаты задачи удаляются с диска без восстановления.
+          </p>
+          <ul id="history-list" class="history-list" aria-multiselectable="true"></ul>
           <p id="history-empty" class="muted history-empty" hidden>Нет задач</p>
+          <p
+            id="history-feedback"
+            class="sidebar__feedback"
+            role="status"
+            aria-live="polite"
+            hidden
+          ></p>
         </aside>
 
         <div class="layout__main">
@@ -64,11 +94,11 @@
                   </select>
                 </label>
                 <label class="field">
-                  <span class="field__label">Длина саммари</span>
+                  <span class="field__label">Тип саммари</span>
                   <select id="summary-size" class="select">
-                    <option value="short">Коротко</option>
-                    <option value="medium" selected>Средне</option>
-                    <option value="long">Развёрнуто</option>
+                    <option value="gist" selected>О чём речь</option>
+                    <option value="executive">Резюме для руководства</option>
+                    <option value="meeting">Полный доклад о встрече</option>
                   </select>
                 </label>
               </div>
@@ -81,7 +111,7 @@
                   id="custom-prompt"
                   class="textarea"
                   rows="3"
-                  placeholder="Если заполнено — один запрос к Ollama с вашей инструкцией и транскриптом. Иначе — обычное саммари по длине."
+                  placeholder="Если заполнено — один запрос к Ollama с вашей инструкцией и транскриптом. Иначе — пресет по полю «Тип саммари»."
                 ></textarea>
               </label>
 
@@ -147,18 +177,44 @@
                 <article class="result">
                   <div class="result__head">
                     <h3 class="result__title">Транскрипт</h3>
-                    <button id="btn-copy-transcript" type="button" class="btn btn--small">
-                      Копировать
-                    </button>
+                    <div class="result__actions">
+                      <button id="btn-copy-transcript" type="button" class="btn btn--small">
+                        Копировать
+                      </button>
+                      <button id="btn-dl-transcript-txt" type="button" class="btn btn--small">
+                        .txt
+                      </button>
+                      <button
+                        id="btn-dl-transcript-doc"
+                        type="button"
+                        class="btn btn--small"
+                        title="Файл .doc для открытия в Microsoft Word"
+                      >
+                        Word
+                      </button>
+                    </div>
                   </div>
                   <pre id="out-transcript" class="result__body"></pre>
                 </article>
                 <article class="result">
                   <div class="result__head">
                     <h3 class="result__title">Саммари</h3>
-                    <button id="btn-copy-summary" type="button" class="btn btn--small">
-                      Копировать
-                    </button>
+                    <div class="result__actions">
+                      <button id="btn-copy-summary" type="button" class="btn btn--small">
+                        Копировать
+                      </button>
+                      <button id="btn-dl-summary-txt" type="button" class="btn btn--small">
+                        .txt
+                      </button>
+                      <button
+                        id="btn-dl-summary-doc"
+                        type="button"
+                        class="btn btn--small"
+                        title="Файл .doc для открытия в Microsoft Word"
+                      >
+                        Word
+                      </button>
+                    </div>
                   </div>
                   <pre id="out-summary" class="result__body"></pre>
                 </article>
@@ -167,7 +223,8 @@
           </main>
 
           <footer class="footer muted">
-            API: <code>/jobs</code> · <a href="/docs">OpenAPI</a>
+            API: <code>/jobs</code> · <code>POST /jobs/bulk-delete</code> ·
+            <a href="/docs">OpenAPI</a>
           </footer>
         </div>
       </div>
@@ -193,11 +250,11 @@
             </select>
           </label>
           <label class="field">
-            <span class="field__label">Длина саммари</span>
+            <span class="field__label">Тип саммари</span>
             <select id="requeue-summary" class="select">
-              <option value="short">Коротко</option>
-              <option value="medium">Средне</option>
-              <option value="long">Развёрнуто</option>
+              <option value="gist">О чём речь</option>
+              <option value="executive" selected>Резюме для руководства</option>
+              <option value="meeting">Полный доклад о встрече</option>
             </select>
           </label>
         </div>
@@ -210,6 +267,28 @@
             В очередь
           </button>
           <button type="button" class="btn btn--ghost" id="requeue-cancel">
+            Отмена
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="bulk-delete-modal" class="modal" hidden>
+      <div class="modal__backdrop" id="bulk-delete-modal-backdrop"></div>
+      <div
+        class="modal__box panel"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="bulk-delete-modal-title"
+        aria-describedby="bulk-delete-modal-desc"
+      >
+        <h3 id="bulk-delete-modal-title" class="panel__title">Удалить задачи?</h3>
+        <p id="bulk-delete-modal-desc" class="muted"></p>
+        <div class="actions actions--tight-top">
+          <button type="button" class="btn btn--danger" id="bulk-delete-confirm">
+            Удалить
+          </button>
+          <button type="button" class="btn btn--ghost" id="bulk-delete-cancel">
             Отмена
           </button>
         </div>
@@ -233,11 +312,11 @@
         </p>
         <div class="grid">
           <label class="field">
-            <span class="field__label">Длина саммари</span>
+            <span class="field__label">Тип саммари</span>
             <select id="summarize-only-summary" class="select">
-              <option value="short">Коротко</option>
-              <option value="medium">Средне</option>
-              <option value="long">Развёрнуто</option>
+              <option value="gist">О чём речь</option>
+              <option value="executive" selected>Резюме для руководства</option>
+              <option value="meeting">Полный доклад о встрече</option>
             </select>
           </label>
         </div>

@@ -65,7 +65,7 @@ def test_transcript_425_before_ready(
         r = client.post(
             "/jobs",
             files={"audio_file": ("a.wav", f, "audio/wav")},
-            data={"asr_model": "fast", "summary_size": "short"},
+            data={"asr_model": "fast", "summary_size": "gist"},
         )
     assert r.status_code == 200
     job_id = r.json()["job_id"]
@@ -81,7 +81,7 @@ def test_transcript_200_after_manual_write(
         r = client.post(
             "/jobs",
             files={"audio_file": ("a.wav", f, "audio/wav")},
-            data={"asr_model": "fast", "summary_size": "short"},
+            data={"asr_model": "fast", "summary_size": "gist"},
         )
     job_id = r.json()["job_id"]
     db = Path(tmp / "jobs.sqlite")
@@ -114,7 +114,7 @@ def test_transcript_409_on_error_without_transcript(
         r = client.post(
             "/jobs",
             files={"audio_file": ("a.wav", f, "audio/wav")},
-            data={"asr_model": "fast", "summary_size": "short"},
+            data={"asr_model": "fast", "summary_size": "gist"},
         )
     job_id = r.json()["job_id"]
     db = Path(tmp / "jobs.sqlite")
@@ -137,7 +137,7 @@ def test_requeue_success(
         r = client.post(
             "/jobs",
             files={"audio_file": ("a.wav", f, "audio/wav")},
-            data={"asr_model": "fast", "summary_size": "short"},
+            data={"asr_model": "fast", "summary_size": "gist"},
         )
     job_id = r.json()["job_id"]
     row = repo.get_job(Path(tmp / "jobs.sqlite"), job_id)
@@ -156,14 +156,14 @@ def test_requeue_success(
     )
     rq = client.post(
         f"/jobs/{job_id}/requeue",
-        json={"asr_model": "medium", "summary_size": "long"},
+        json={"asr_model": "medium", "summary_size": "meeting"},
     )
     assert rq.status_code == 200, rq.text
     assert rq.json() == {"job_id": job_id, "status": "queued"}
     row2 = repo.get_job(Path(tmp / "jobs.sqlite"), job_id)
     assert row2["status"] == "queued"
     assert row2["asr_preset"] == "medium"
-    assert row2["summary_size"] == "long"
+    assert row2["summary_size"] == "meeting"
     assert row2["transcript"] is None
 
 
@@ -175,7 +175,7 @@ def test_requeue_410_missing_audio(
         r = client.post(
             "/jobs",
             files={"audio_file": ("a.wav", f, "audio/wav")},
-            data={"asr_model": "fast", "summary_size": "short"},
+            data={"asr_model": "fast", "summary_size": "gist"},
         )
     job_id = r.json()["job_id"]
     row = repo.get_job(Path(tmp / "jobs.sqlite"), job_id)
@@ -190,7 +190,7 @@ def test_requeue_410_missing_audio(
     )
     rq = client.post(
         f"/jobs/{job_id}/requeue",
-        json={"asr_model": "fast", "summary_size": "short"},
+        json={"asr_model": "fast", "summary_size": "gist"},
     )
     assert rq.status_code == 410
 
@@ -203,7 +203,7 @@ def test_requeue_409_while_processing(
         r = client.post(
             "/jobs",
             files={"audio_file": ("a.wav", f, "audio/wav")},
-            data={"asr_model": "fast", "summary_size": "short"},
+            data={"asr_model": "fast", "summary_size": "gist"},
         )
     job_id = r.json()["job_id"]
     repo.update_stages_and_optional(
@@ -214,7 +214,7 @@ def test_requeue_409_while_processing(
     )
     rq = client.post(
         f"/jobs/{job_id}/requeue",
-        json={"asr_model": "fast", "summary_size": "short"},
+        json={"asr_model": "fast", "summary_size": "gist"},
     )
     assert rq.status_code == 409
 
@@ -229,7 +229,7 @@ def test_list_jobs_order(
             r = client.post(
                 "/jobs",
                 files={"audio_file": (f"{i}.wav", f, "audio/wav")},
-                data={"asr_model": "fast", "summary_size": "short"},
+                data={"asr_model": "fast", "summary_size": "gist"},
             )
         ids.append(r.json()["job_id"])
     lst = client.get("/jobs?limit=10&offset=0")
@@ -247,7 +247,7 @@ def test_summarize_only_queues_without_asr(
         r = client.post(
             "/jobs",
             files={"audio_file": ("a.wav", f, "audio/wav")},
-            data={"asr_model": "fast", "summary_size": "short"},
+            data={"asr_model": "fast", "summary_size": "gist"},
         )
     job_id = r.json()["job_id"]
     db = Path(tmp / "jobs.sqlite")
@@ -263,14 +263,14 @@ def test_summarize_only_queues_without_asr(
     )
     rq = client.post(
         f"/jobs/{job_id}/summarize",
-        json={"summary_size": "long", "custom_prompt": "Bullet points"},
+        json={"summary_size": "meeting", "custom_prompt": "Bullet points"},
     )
     assert rq.status_code == 200, rq.text
     assert rq.json() == {"job_id": job_id, "status": "queued"}
     row = repo.get_job(db, job_id)
     assert row["status"] == "queued"
     assert int(row.get("summarize_only") or 0) == 1
-    assert row["summary_size"] == "long"
+    assert row["summary_size"] == "meeting"
     assert row["custom_prompt"] == "Bullet points"
     assert row["transcript"] == "only text"
     assert row["summary"] is None
@@ -284,7 +284,7 @@ def test_summarize_only_400_without_transcript(
         r = client.post(
             "/jobs",
             files={"audio_file": ("a.wav", f, "audio/wav")},
-            data={"asr_model": "fast", "summary_size": "short"},
+            data={"asr_model": "fast", "summary_size": "gist"},
         )
     job_id = r.json()["job_id"]
     db = Path(tmp / "jobs.sqlite")
@@ -298,7 +298,7 @@ def test_summarize_only_400_without_transcript(
     )
     rq = client.post(
         f"/jobs/{job_id}/summarize",
-        json={"summary_size": "short"},
+        json={"summary_size": "gist"},
     )
     assert rq.status_code == 400
 
@@ -313,7 +313,7 @@ def test_create_job_with_custom_prompt_form(
             files={"audio_file": ("a.wav", f, "audio/wav")},
             data={
                 "asr_model": "fast",
-                "summary_size": "short",
+                "summary_size": "gist",
                 "custom_prompt": "  List key dates  ",
             },
         )
@@ -321,3 +321,65 @@ def test_create_job_with_custom_prompt_form(
     job_id = r.json()["job_id"]
     row = repo.get_job(Path(tmp / "jobs.sqlite"), job_id)
     assert row["custom_prompt"] == "List key dates"
+
+
+def test_bulk_delete_removes_row_and_audio_file(
+    client_isolated: tuple[TestClient, Path], tiny_wav: Path
+) -> None:
+    client, tmp = client_isolated
+    with tiny_wav.open("rb") as f:
+        r = client.post(
+            "/jobs",
+            files={"audio_file": ("a.wav", f, "audio/wav")},
+            data={"asr_model": "fast", "summary_size": "gist"},
+        )
+    assert r.status_code == 200
+    job_id = r.json()["job_id"]
+    db = Path(tmp / "jobs.sqlite")
+    row = repo.get_job(db, job_id)
+    audio = Path(row["audio_path"])
+    assert audio.is_file()
+    rd = client.post("/jobs/bulk-delete", json={"job_ids": [job_id]})
+    assert rd.status_code == 200
+    assert rd.json() == {"deleted": [job_id], "skipped": []}
+    assert repo.get_job(db, job_id) is None
+    assert not audio.is_file()
+
+
+def test_bulk_delete_skips_processing(
+    client_isolated: tuple[TestClient, Path], tiny_wav: Path
+) -> None:
+    client, tmp = client_isolated
+    with tiny_wav.open("rb") as f:
+        r = client.post(
+            "/jobs",
+            files={"audio_file": ("a.wav", f, "audio/wav")},
+            data={"asr_model": "fast", "summary_size": "gist"},
+        )
+    job_id = r.json()["job_id"]
+    db = Path(tmp / "jobs.sqlite")
+    repo.update_stages_and_optional(
+        db,
+        job_id,
+        stages={"upload": "done", "asr": "processing", "summarize": "pending"},
+        status="processing",
+    )
+    rd = client.post("/jobs/bulk-delete", json={"job_ids": [job_id]})
+    assert rd.status_code == 200
+    body = rd.json()
+    assert body["deleted"] == []
+    assert body["skipped"] == [{"id": job_id, "reason": "processing"}]
+    assert repo.get_job(db, job_id) is not None
+
+
+def test_bulk_delete_not_found_is_skipped(
+    client_isolated: tuple[TestClient, Path], tiny_wav: Path
+) -> None:
+    client, _ = client_isolated
+    rd = client.post(
+        "/jobs/bulk-delete",
+        json={"job_ids": ["00000000-0000-0000-0000-000000000000"]},
+    )
+    assert rd.status_code == 200
+    assert rd.json()["deleted"] == []
+    assert rd.json()["skipped"][0]["reason"] == "not_found"

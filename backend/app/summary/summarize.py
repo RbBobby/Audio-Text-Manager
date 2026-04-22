@@ -41,7 +41,7 @@ class SummaryResult:
 
 
 class Summarizer:
-    """Local LLM summarization via Ollama: long/medium/short and map-reduce for long text."""
+    """Local LLM summarization via Ollama: gist / executive / meeting presets and map-reduce."""
 
     def __init__(
         self,
@@ -292,7 +292,7 @@ class Summarizer:
         )
 
     def _map_reduce(self, chunks: list[str], size: SummarySize) -> SummaryResult:
-        sys_map = system_instruction_map()
+        sys_map = system_instruction_map(size)
         partials: list[str] = []
         for ch in chunks:
             piece = ch

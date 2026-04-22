@@ -245,6 +245,74 @@ def clear_summarize_only_flag(sqlite_path: Path, job_id: str) -> None:
         conn.close()
 
 
+def delete_jobs_bulk(
+    sqlite_path: Path, job_ids: list[str]
+) -> tuple[list[str], list[dict[str, str]]]:
+    """Remove jobs and their uploaded audio files.
+
+    Skips unknown ids and jobs in ``processing`` (worker may hold them).
+    Returns ``(deleted_ids, skipped)`` where each skipped item is
+    ``{"id": ..., "reason": "not_found"|"processing"}``.
+    """
+    deleted: list[str] = []
+    skipped: list[dict[str, str]] = []
+    seen: set[str] = set()
+    unique: list[str] = []
+    for raw in job_ids:
+        if not isinstance(raw, str):
+            continue
+        jid = raw.strip()
+        if not jid or jid in seen:
+            continue
+        seen.add(jid)
+        unique.append(jid)
+
+    for job_id in unique:
+        conn = _connect(sqlite_path)
+        conn.isolation_level = None
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            cur = conn.execute(
+                """
+                DELETE FROM jobs
+                WHERE id = ? AND status != 'processing'
+                RETURNING audio_path
+                """,
+                (job_id,),
+            )
+            ret = cur.fetchone()
+            if ret is None:
+                conn.execute("ROLLBACK")
+                cur2 = conn.execute(
+                    "SELECT 1 FROM jobs WHERE id = ?",
+                    (job_id,),
+                )
+                if cur2.fetchone() is None:
+                    skipped.append({"id": job_id, "reason": "not_found"})
+                else:
+                    skipped.append({"id": job_id, "reason": "processing"})
+                continue
+            audio_path_s = ret[0]
+            conn.execute("COMMIT")
+            deleted.append(job_id)
+            audio = Path(audio_path_s)
+            if audio.is_file():
+                try:
+                    audio.unlink()
+                except OSError:
+                    pass
+        except Exception:
+            try:
+                conn.execute("ROLLBACK")
+            except sqlite3.OperationalError:
+                pass
+            raise
+        finally:
+            conn.close()
+
+    return deleted, skipped
+
+
 def update_stages_and_optional(
     sqlite_path: Path,
     job_id: str,

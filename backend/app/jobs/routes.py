@@ -15,6 +15,9 @@ from backend.app.summary import parse_summary_size
 
 from . import repository as repo
 from .schemas import (
+    JobBulkDeleteBody,
+    JobBulkDeleteResponse,
+    JobBulkDeleteSkipped,
     JobCreateResponse,
     JobListItem,
     JobListResponse,
@@ -66,6 +69,17 @@ def list_jobs(
         for r in rows
     ]
     return JobListResponse(jobs=items, limit=limit, offset=offset)
+
+
+@router.post("/bulk-delete", response_model=JobBulkDeleteResponse)
+def bulk_delete_jobs(request: Request, body: JobBulkDeleteBody) -> JobBulkDeleteResponse:
+    """Удалить выбранные задачи: запись в SQLite и файл загрузки (транскрипт/саммари в БД)."""
+    settings: Settings = request.app.state.settings
+    deleted, skipped_raw = repo.delete_jobs_bulk(settings.sqlite_path, body.job_ids)
+    skipped = [JobBulkDeleteSkipped(id=s["id"], reason=s["reason"]) for s in skipped_raw]
+    if deleted:
+        logger.info("Bulk-delete removed %d job(s)", len(deleted))
+    return JobBulkDeleteResponse(deleted=deleted, skipped=skipped)
 
 
 @router.post("", response_model=JobCreateResponse)

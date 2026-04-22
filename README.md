@@ -128,7 +128,7 @@ pytest
 
 ## API в двух словах
 
-- `POST /jobs` — форма: `audio_file`, `asr_model` (`fast` \| `medium` \| `high`), `summary_size` (`short` \| `medium` \| `long`), опционально `custom_prompt` — тогда саммари одним запросом к Ollama по вашей инструкции (иначе встроенные пресеты).
+- `POST /jobs` — форма: `audio_file`, `asr_model` (`fast` \| `medium` \| `high`), `summary_size` (`gist` \| `executive` \| `meeting`; для старых клиентов по-прежнему принимаются `short` \| `medium` \| `long` как синонимы), опционально `custom_prompt` — тогда саммари одним запросом к Ollama по вашей инструкции (иначе пресеты по `summary_size`).
 - `GET /jobs` — список последних джобов (`limit`, `offset`), без больших полей.
 - `GET /jobs/{id}` — статус и стадии.
 - `GET /jobs/{id}/transcript` — транскрипт, как только ASR завершён (до готовности всего джоба); **425**, если транскрипта ещё нет; **409**, если джоб упал до транскрипта.

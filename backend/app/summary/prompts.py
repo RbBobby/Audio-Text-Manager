@@ -2,60 +2,99 @@ from __future__ import annotations
 
 from .presets import SummarySize
 
+_LANG = (
+    "Отвечай на том же языке, что и транскрипт, если пользователь явно не просит иной язык."
+)
+
 
 def system_instruction_final(size: SummarySize) -> str:
     """System-style instruction for the final summary shape (single-shot or reduce)."""
-    if size == "short":
+    if size == "gist":
         return (
-            "You summarize transcripts. Output 5–7 bullet points (use '-' or '•'). "
-            "Stay faithful to the source. Write in the same language as the transcript."
+            "Ты анализируешь транскрипт. Не пересказывай дословно. Ответь структурно: "
+            "(1) один абзац — о чём речь и в каком контексте; "
+            "(2) маркированный список — главные темы или вопросы; "
+            "(3) одна строка — итоговый вывод в одном предложении; "
+            "(4) опционально одна строка — для кого это полезно, только если это следует из текста. "
+            "Если в тексте нет данных — не выдумывай; пиши «не указано в транскрипте». "
+            "Ограничь общий объём примерно 120–180 слов. "
+            + _LANG
         )
-    if size == "medium":
+    if size == "executive":
         return (
-            "You summarize transcripts. Output 2–4 coherent paragraphs, then a section "
-            "titled exactly 'Action items:' with bullet points for concrete next steps or "
-            "decisions. Write in the same language as the transcript."
+            "Составь резюме документа или встречи для руководителя: примерно до одной страницы текста. "
+            "Структура: краткий заголовок; Контекст (2–3 предложения); Ключевые выводы (5–7 маркеров); "
+            "Принятые решения; Риски и неясности (только из текста); Следующие шаги (кто/что/когда — "
+            "только если в транскрипте явно или уверенно следует). Не цитируй длинно; не добавляй фактов, "
+            "которых нет в транскрипте; там где неясно — «не указано в транскрипте». "
+            + _LANG
         )
     return (
-        "You summarize transcripts as a detailed structured outline. Use markdown "
-        "headings (##) for major sections and subsections where helpful. Cover important "
-        "facts, arguments, and conclusions. Write in the same language as the transcript."
+        "Подготовь полный доклад по стенограмме встречи: структурированный текст с подзаголовками (##). "
+        "Включи: участников, если звучат имена, иначе явно укажи, что участники не названы; темы по порядку; "
+        "суть дискуссии и позиции по блокам; промежуточные выводы по разделам; итоговые решения отдельным разделом; "
+        "список поручений (задача — ответственный — срок) только если это есть в тексте; открытые вопросы в конце. "
+        "Стиль нейтрального протокола. Не выдумывай участников и договорённости; пропуски помечай "
+        "«не указано в транскрипте». "
+        + _LANG
     )
 
 
-def system_instruction_map() -> str:
+def system_instruction_map(size: SummarySize) -> str:
+    tail = " Пиши компактно, без вступлений. Не выдумывай."
+    if size == "gist":
+        return (
+            "Ты извлекаешь из отрывка транскрипта только сигнал для главы «о чём речь»: темы, цель разговора, "
+            "ключевые вопросы, упомянутые сущности. Маркеры или короткие фразы."
+            + tail
+        )
+    if size == "executive":
+        return (
+            "Ты извлекаешь из отрывка транскрипта факты для executive summary: суть, решения, риски, цифры, "
+            "сроки, поручения — только то, что явно сказано в этом отрывке."
+            + tail
+        )
     return (
-        "You extract key information from a transcript excerpt. Produce a compact factual "
-        "summary: main topics, entities, decisions, dates, numbers, and any action items "
-        "mentioned in this excerpt only. No preamble. Write in the same language as the excerpt."
+        "Ты ведёшь фрагмент протокола встречи по этому отрывку: кто сказал (если есть имена), о чём речь в блоке, "
+        "позиции, промежуточные выводы, зафиксированные договорённости — только из отрывка."
+        + tail
     )
 
 
 def user_map_chunk(chunk: str) -> str:
-    return f"--- Transcript excerpt ---\n{chunk}\n--- End excerpt ---\n\nSummarize this excerpt."
+    return (
+        f"--- Фрагмент транскрипта ---\n{chunk}\n--- Конец фрагмента ---\n\n"
+        "Сделай выжимку строго по системной инструкции."
+    )
 
 
 def user_single_shot(transcript: str) -> str:
-    return f"--- Transcript ---\n{transcript}\n--- End transcript ---\n\nProduce the summary."
+    return (
+        f"--- Транскрипт ---\n{transcript}\n--- Конец транскрипта ---\n\n"
+        "Сформируй результат строго по системной инструкции."
+    )
 
 
 def user_reduce(partials: list[str], size: SummarySize) -> str:
     body = "\n\n".join(
         f"--- Partial summary {i + 1} ---\n{p.strip()}" for i, p in enumerate(partials) if p.strip()
     )
-    if size == "short":
-        goal = "Merge into one coherent list of 5–7 bullet points. Remove redundancy."
-    elif size == "medium":
+    if size == "gist":
         goal = (
-            "Merge into 2–4 paragraphs plus an 'Action items:' bullet list. "
-            "Unify overlapping content; keep one clear narrative."
+            "Объедини в одну структуру «о чём речь»: один абзац контекста, маркеры тем/вопросов, "
+            "одна строка итога; убери дубли; не добавляй фактов вне частичных сводок."
+        )
+    elif size == "executive":
+        goal = (
+            "Объедини в одно резюме для руководителя по структуре из системной инструкции: контекст, выводы, "
+            "решения, риски, шаги; унифицируй повторы; сохрани только подтверждённые факты."
         )
     else:
         goal = (
-            "Merge into one structured long outline with ## headings. "
-            "Deduplicate; preserve important detail from all parts."
+            "Объедини в один полный доклад встречи с подзаголовками ##; согласуй блоки по времени/теме; "
+            "сведи дубли; сохрани решения и поручения из всех частей."
         )
     return (
-        f"You are given partial summaries from consecutive parts of ONE transcript.\n"
-        f"{goal}\n\n{body}\n\n--- End partial summaries ---\n\nProduce the final summary."
+        f"Ниже — частичные сводки последовательных фрагментов ОДНОГО транскрипта.\n"
+        f"{goal}\n\n{body}\n\n--- Конец частичных сводок ---\n\nСформируй итоговый результат."
     )

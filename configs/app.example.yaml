@@ -23,6 +23,8 @@ asr:
 
 # API джобов (см. README): GET /jobs, GET /jobs/{id}/transcript (ранний транскрипт),
 # POST /jobs/{id}/requeue, опциональное поле формы custom_prompt при POST /jobs.
+# summary_size: gist | executive | meeting (кратко «о чём речь», резюме для руководства, полный доклад);
+#   старые short | medium | long принимаются как синонимы.
 
 # Summarization (Ollama, backend.app.summary)
 ollama:

@@ -23,9 +23,23 @@
   const outSummary = document.getElementById("out-summary");
   const btnCopyTranscript = document.getElementById("btn-copy-transcript");
   const btnCopySummary = document.getElementById("btn-copy-summary");
+  const btnDlTranscriptTxt = document.getElementById("btn-dl-transcript-txt");
+  const btnDlTranscriptDoc = document.getElementById("btn-dl-transcript-doc");
+  const btnDlSummaryTxt = document.getElementById("btn-dl-summary-txt");
+  const btnDlSummaryDoc = document.getElementById("btn-dl-summary-doc");
   const historyList = document.getElementById("history-list");
   const historyEmpty = document.getElementById("history-empty");
   const btnRefreshHistory = document.getElementById("btn-refresh-history");
+  const historyToolbar = document.getElementById("history-toolbar");
+  const historySelectAll = document.getElementById("history-select-all");
+  const btnBulkDeleteOpen = document.getElementById("btn-bulk-delete-open");
+  const historyBulkHint = document.getElementById("history-bulk-hint");
+  const historyFeedback = document.getElementById("history-feedback");
+  const bulkDeleteModal = document.getElementById("bulk-delete-modal");
+  const bulkDeleteBackdrop = document.getElementById("bulk-delete-modal-backdrop");
+  const bulkDeleteDesc = document.getElementById("bulk-delete-modal-desc");
+  const bulkDeleteConfirm = document.getElementById("bulk-delete-confirm");
+  const bulkDeleteCancel = document.getElementById("bulk-delete-cancel");
   const requeueModal = document.getElementById("requeue-modal");
   const requeueBackdrop = document.getElementById("requeue-modal-backdrop");
   const requeueHint = document.getElementById("requeue-modal-hint");
@@ -59,6 +73,11 @@
   let activeHistoryId = null;
   /** @type {string|null} last GET /jobs/:id status for UI gating */
   let lastKnownJobStatus = null;
+
+  let progressCreepTimer = null;
+  /** @type {"asr" | "summ" | null} */
+  let progressCreepPhase = null;
+  let displayedProgress = 5;
 
   function extOf(name) {
     const i = name.lastIndexOf(".");
@@ -104,6 +123,27 @@
     return "step--pending";
   }
 
+  function stopProgressCreep() {
+    if (progressCreepTimer) {
+      clearInterval(progressCreepTimer);
+      progressCreepTimer = null;
+    }
+    progressCreepPhase = null;
+  }
+
+  function setProgressWidth(pct, instant) {
+    const p = Math.max(0, Math.min(100, pct));
+    displayedProgress = p;
+    progressFill.classList.toggle("progress-bar__fill--instant", !!instant);
+    progressFill.style.width = p + "%";
+    progressFill.parentElement.setAttribute("aria-valuenow", String(Math.round(p)));
+    if (instant) {
+      requestAnimationFrame(function () {
+        progressFill.classList.remove("progress-bar__fill--instant");
+      });
+    }
+  }
+
   function applyStages(st) {
     for (const key of Object.keys(steps)) {
       const el = steps[key];
@@ -116,9 +156,58 @@
       );
       el.classList.add(stageClass(st[key] || "pending"));
     }
-    const pct = progressFromStages(st);
-    progressFill.style.width = pct + "%";
-    progressFill.parentElement.setAttribute("aria-valuenow", String(pct));
+    const base = progressFromStages(st);
+    const u = st.upload || "pending";
+    const a = st.asr || "pending";
+    const s = st.summarize || "pending";
+
+    if (u === "error" || a === "error" || s === "error" || s === "done") {
+      stopProgressCreep();
+      setProgressWidth(base, false);
+      return;
+    }
+
+    if (a === "processing") {
+      if (progressCreepPhase !== "asr") {
+        stopProgressCreep();
+        progressCreepPhase = "asr";
+        displayedProgress = Math.min(Math.max(displayedProgress, 20), 52);
+        if (displayedProgress >= 54) displayedProgress = 26;
+        progressCreepTimer = setInterval(function () {
+          const cap = 54;
+          displayedProgress = Math.min(
+            displayedProgress +
+              Math.max(0.18, (cap - displayedProgress) * 0.07),
+            cap
+          );
+          setProgressWidth(displayedProgress, true);
+        }, 400);
+      }
+      setProgressWidth(displayedProgress, true);
+      return;
+    }
+
+    if (s === "processing") {
+      if (progressCreepPhase !== "summ") {
+        stopProgressCreep();
+        progressCreepPhase = "summ";
+        displayedProgress = Math.max(displayedProgress, Math.max(base - 8, 68));
+        progressCreepTimer = setInterval(function () {
+          const cap = 94;
+          displayedProgress = Math.min(
+            displayedProgress +
+              Math.max(0.18, (cap - displayedProgress) * 0.06),
+            cap
+          );
+          setProgressWidth(displayedProgress, true);
+        }, 400);
+      }
+      setProgressWidth(displayedProgress, true);
+      return;
+    }
+
+    stopProgressCreep();
+    setProgressWidth(base, false);
   }
 
   function progressFromStages(st) {
@@ -151,6 +240,7 @@
       clearInterval(pollTimer);
       pollTimer = null;
     }
+    stopProgressCreep();
   }
 
   async function fetchJson(url, opts) {
@@ -293,29 +383,181 @@
     });
   }
 
+  function getSelectedJobIds() {
+    const ids = [];
+    historyList.querySelectorAll(".history-cb:checked").forEach(function (cb) {
+      ids.push(cb.getAttribute("data-job-id"));
+    });
+    return ids;
+  }
+
+  function updateBulkDeleteButton() {
+    const n = getSelectedJobIds().length;
+    btnBulkDeleteOpen.disabled = n === 0;
+    btnBulkDeleteOpen.textContent =
+      n > 0 ? "Удалить выбранное (" + n + ")" : "Удалить выбранное";
+  }
+
+  function updateSelectAllCheckbox() {
+    const boxes = historyList.querySelectorAll(".history-cb");
+    const total = boxes.length;
+    if (!total) {
+      historySelectAll.checked = false;
+      historySelectAll.indeterminate = false;
+      return;
+    }
+    let c = 0;
+    boxes.forEach(function (b) {
+      if (b.checked) c += 1;
+    });
+    historySelectAll.indeterminate = false;
+    historySelectAll.checked = c === total && total > 0;
+  }
+
+  function clearJobViewIfDeleted(deletedSet) {
+    if (!currentJobId || !deletedSet.has(currentJobId)) return;
+    stopPoll();
+    currentJobId = null;
+    lastKnownJobStatus = null;
+    activeHistoryId = null;
+    transcriptFetchedForJob = null;
+    hideError();
+    progressSection.hidden = true;
+    resultsSection.hidden = true;
+    outTranscript.textContent = "";
+    outSummary.textContent = "";
+    metaLine.textContent = "";
+    btnReset.hidden = true;
+    btnRequeueOpen.hidden = true;
+    btnSummarizeOnlyOpen.hidden = true;
+    btnSubmit.disabled = !selectedFile;
+    applyStages({ upload: "pending", asr: "pending", summarize: "pending" });
+    progressFill.style.width = "0%";
+    historyList.querySelectorAll(".history-item").forEach(function (el) {
+      el.classList.remove("history-item--active");
+    });
+  }
+
+  function openBulkDeleteModal() {
+    const ids = getSelectedJobIds();
+    if (!ids.length) return;
+    bulkDeleteDesc.textContent =
+      "Будет удалено записей: " +
+      ids.length +
+      ". Аудиофайлы и связанные данные будут удалены без возможности восстановления.";
+    bulkDeleteModal.hidden = false;
+    bulkDeleteConfirm.focus();
+  }
+
+  function closeBulkDeleteModal() {
+    bulkDeleteModal.hidden = true;
+  }
+
+  async function confirmBulkDelete() {
+    const ids = getSelectedJobIds();
+    if (!ids.length) {
+      closeBulkDeleteModal();
+      return;
+    }
+    bulkDeleteConfirm.disabled = true;
+    try {
+      const res = await fetchJson("/jobs/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_ids: ids }),
+      });
+      const deleted = new Set(res.deleted || []);
+      const skipped = res.skipped || [];
+      closeBulkDeleteModal();
+      clearJobViewIfDeleted(deleted);
+      historySelectAll.checked = false;
+      historySelectAll.indeterminate = false;
+      if (deleted.size === 0 && skipped.length) {
+        setHistoryFeedback(
+          "Ничего не удалено: " +
+            skipped.length +
+            " — задача выполняется или уже отсутствует.",
+          "warn"
+        );
+      } else {
+        let msg = "Удалено записей: " + deleted.size;
+        if (skipped.length) {
+          msg +=
+            ". Не удалено: " +
+            skipped.length +
+            " (выполняется обработка или не найдено).";
+        }
+        setHistoryFeedback(msg, skipped.length ? "warn" : "ok");
+      }
+      await refreshHistory();
+      updateBulkDeleteButton();
+    } catch (e) {
+      closeBulkDeleteModal();
+      showError(e.data ? formatDetail(e.data) : e.message || String(e));
+    } finally {
+      bulkDeleteConfirm.disabled = false;
+    }
+  }
+
   async function refreshHistory() {
     try {
       const data = await fetchJson("/jobs?limit=40");
       const jobs = data.jobs || [];
+      const keepSelected = new Set(getSelectedJobIds());
       historyList.innerHTML = "";
       if (!jobs.length) {
         historyEmpty.hidden = false;
+        historyToolbar.hidden = true;
+        historyBulkHint.hidden = true;
+        historySelectAll.checked = false;
+        historySelectAll.indeterminate = false;
+        setHistoryFeedback("", "ok");
+        updateBulkDeleteButton();
         return;
       }
       historyEmpty.hidden = true;
+      historyToolbar.hidden = false;
+      historyBulkHint.hidden = false;
       jobs.forEach(function (j) {
         const li = document.createElement("li");
         li.className = "history-item";
         li.setAttribute("data-job-id", j.id);
+        const row = document.createElement("div");
+        row.className = "history-item__row";
+        const wrap = document.createElement("span");
+        wrap.className = "history-item__checkwrap";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.className = "history-cb";
+        cb.setAttribute("data-job-id", j.id);
         const name = j.original_filename || j.id.slice(0, 8);
         const st = (j.stages && j.stages.summarize) || "";
-        li.textContent = name + " · " + j.status + (st ? " · " + st : "");
-        li.addEventListener("click", function () {
+        const line = name + " · " + j.status + (st ? " · " + st : "");
+        cb.setAttribute("aria-label", "Выбрать для удаления: " + name);
+        if (keepSelected.has(j.id)) cb.checked = true;
+        cb.addEventListener("click", function (e) {
+          e.stopPropagation();
+        });
+        cb.addEventListener("change", function () {
+          updateSelectAllCheckbox();
+          updateBulkDeleteButton();
+        });
+        const main = document.createElement("button");
+        main.type = "button";
+        main.className = "history-item__main";
+        main.textContent = line;
+        main.addEventListener("click", function () {
           selectHistoryJob(j.id);
         });
+        wrap.appendChild(cb);
+        row.appendChild(wrap);
+        row.appendChild(main);
+        li.appendChild(row);
         historyList.appendChild(li);
       });
       if (activeHistoryId) setActiveHistory(activeHistoryId);
+      updateSelectAllCheckbox();
+      updateBulkDeleteButton();
     } catch {
       /* ignore list errors */
     }
@@ -323,6 +565,8 @@
 
   async function selectHistoryJob(jobId) {
     hideError();
+    displayedProgress = 5;
+    stopProgressCreep();
     setActiveHistory(jobId);
     currentJobId = jobId;
     transcriptFetchedForJob = null;
@@ -460,6 +704,8 @@
   async function submitJob() {
     hideError();
     if (!selectedFile) return;
+    displayedProgress = 5;
+    stopProgressCreep();
     btnSubmit.disabled = true;
     resultsSection.hidden = true;
     outTranscript.textContent = "";
@@ -504,8 +750,22 @@
     }
   }
 
+  function setHistoryFeedback(message, kind) {
+    if (!message) {
+      historyFeedback.textContent = "";
+      historyFeedback.hidden = true;
+      historyFeedback.classList.remove("sidebar__feedback--warn");
+      return;
+    }
+    historyFeedback.textContent = message;
+    historyFeedback.hidden = false;
+    historyFeedback.classList.toggle("sidebar__feedback--warn", kind === "warn");
+  }
+
   function resetUi() {
     stopPoll();
+    setHistoryFeedback("", "ok");
+    displayedProgress = 5;
     currentJobId = null;
     selectedFile = null;
     transcriptFetchedForJob = null;
@@ -520,24 +780,112 @@
     btnRequeueOpen.hidden = true;
     btnSummarizeOnlyOpen.hidden = true;
     btnSubmit.disabled = true;
-    progressFill.style.width = "0%";
     applyStages({ upload: "pending", asr: "pending", summarize: "pending" });
     historyList.querySelectorAll(".history-item").forEach(function (el) {
       el.classList.remove("history-item--active");
     });
   }
 
-  async function copyText(text, btn) {
+  function copyWithExecCommand(text) {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    ta.style.top = "0";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, text.length);
+    let ok = false;
     try {
-      await navigator.clipboard.writeText(text);
-      const prev = btn.textContent;
+      ok = document.execCommand("copy");
+    } catch {
+      ok = false;
+    }
+    document.body.removeChild(ta);
+    return ok;
+  }
+
+  async function copyText(text, btn) {
+    const prev = btn.textContent;
+    if (!(text || "").trim()) {
+      showError("Нет текста для копирования");
+      return;
+    }
+    let ok = false;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        ok = true;
+      }
+    } catch {
+      ok = false;
+    }
+    if (!ok) ok = copyWithExecCommand(text);
+    if (ok) {
       btn.textContent = "Скопировано";
       setTimeout(function () {
         btn.textContent = prev;
       }, 1600);
-    } catch {
-      showError("Не удалось скопировать в буфер обмена");
+    } else {
+      showError(
+        "Не удалось скопировать. Выделите текст вручную или скачайте .txt."
+      );
     }
+  }
+
+  function sanitizeBasename(name) {
+    return String(name || "export")
+      .replace(/[/\\?%*:|"<>]/g, "_")
+      .slice(0, 100);
+  }
+
+  function triggerDownload(blob, filename) {
+    const a = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    a.href = url;
+    a.download = filename;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () {
+      URL.revokeObjectURL(url);
+    }, 2500);
+  }
+
+  function exportBasename(kind) {
+    const id = currentJobId ? currentJobId.slice(0, 8) : "export";
+    return sanitizeBasename(kind + "_" + id);
+  }
+
+  function downloadTxt(text, basename) {
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    triggerDownload(blob, basename + ".txt");
+  }
+
+  function downloadWordHtmlDoc(text, basename) {
+    const esc = String(text || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+    const body = esc
+      .split(/\r?\n/)
+      .map(function (line) {
+        return "<p>" + (line || "<br/>") + "</p>";
+      })
+      .join("");
+    const html =
+      "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>" +
+      basename +
+      "</title></head><body>" +
+      body +
+      "</body></html>";
+    const blob = new Blob(["\ufeff", html], {
+      type: "application/msword",
+    });
+    triggerDownload(blob, basename + ".doc");
   }
 
   dropzone.addEventListener("click", function () {
@@ -591,11 +939,65 @@
   summarizeOnlySubmit.addEventListener("click", submitSummarizeOnly);
   btnRefreshHistory.addEventListener("click", refreshHistory);
 
+  historySelectAll.addEventListener("change", function () {
+    const on = historySelectAll.checked;
+    historyList.querySelectorAll(".history-cb").forEach(function (cb) {
+      cb.checked = on;
+    });
+    updateSelectAllCheckbox();
+    updateBulkDeleteButton();
+  });
+
+  btnBulkDeleteOpen.addEventListener("click", openBulkDeleteModal);
+  bulkDeleteCancel.addEventListener("click", closeBulkDeleteModal);
+  bulkDeleteBackdrop.addEventListener("click", closeBulkDeleteModal);
+  bulkDeleteConfirm.addEventListener("click", function () {
+    confirmBulkDelete();
+  });
+
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape") return;
+    if (!bulkDeleteModal.hidden) closeBulkDeleteModal();
+  });
+
   btnCopyTranscript.addEventListener("click", function () {
     copyText(outTranscript.textContent, btnCopyTranscript);
   });
   btnCopySummary.addEventListener("click", function () {
     copyText(outSummary.textContent, btnCopySummary);
+  });
+
+  btnDlTranscriptTxt.addEventListener("click", function () {
+    const t = outTranscript.textContent || "";
+    if (!t.trim()) {
+      showError("Нет транскрипта для сохранения");
+      return;
+    }
+    downloadTxt(t, exportBasename("transcript"));
+  });
+  btnDlTranscriptDoc.addEventListener("click", function () {
+    const t = outTranscript.textContent || "";
+    if (!t.trim()) {
+      showError("Нет транскрипта для сохранения");
+      return;
+    }
+    downloadWordHtmlDoc(t, exportBasename("transcript"));
+  });
+  btnDlSummaryTxt.addEventListener("click", function () {
+    const t = outSummary.textContent || "";
+    if (!t.trim()) {
+      showError("Нет саммари для сохранения");
+      return;
+    }
+    downloadTxt(t, exportBasename("summary"));
+  });
+  btnDlSummaryDoc.addEventListener("click", function () {
+    const t = outSummary.textContent || "";
+    if (!t.trim()) {
+      showError("Нет саммари для сохранения");
+      return;
+    }
+    downloadWordHtmlDoc(t, exportBasename("summary"));
   });
 
   refreshHistory();
