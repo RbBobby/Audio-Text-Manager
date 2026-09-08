@@ -245,6 +245,92 @@ def clear_summarize_only_flag(sqlite_path: Path, job_id: str) -> None:
         conn.close()
 
 
+def _canceled_stages(stages_json: str | None) -> dict[str, str]:
+    try:
+        stages = json.loads(stages_json or "{}")
+    except json.JSONDecodeError:
+        stages = {}
+    out = {
+        "upload": stages.get("upload", "done"),
+        "asr": stages.get("asr", "pending"),
+        "summarize": stages.get("summarize", "pending"),
+    }
+    if out["summarize"] == "processing":
+        out["summarize"] = "canceled"
+    elif out["asr"] == "processing":
+        out["asr"] = "canceled"
+    elif out["asr"] == "done":
+        out["summarize"] = "canceled"
+    else:
+        out["asr"] = "canceled"
+    return out
+
+
+def cancel_job(sqlite_path: Path, job_id: str) -> tuple[str, bool]:
+    """Cancel one queued/processing job. Returns ``(status, changed)``."""
+    row = get_job(sqlite_path, job_id)
+    if row is None:
+        raise LookupError("job not found")
+    if row["status"] not in ("queued", "processing"):
+        return str(row["status"]), False
+    stages = _canceled_stages(row.get("stages_json"))
+    conn = _connect(sqlite_path)
+    try:
+        cur = conn.execute(
+            """
+            UPDATE jobs SET
+              status = 'canceled',
+              summarize_only = 0,
+              stages_json = ?,
+              error_message = NULL,
+              updated_at = datetime('now')
+            WHERE id = ? AND status IN ('queued', 'processing')
+            """,
+            (json.dumps(stages), job_id),
+        )
+        conn.commit()
+        changed = cur.rowcount > 0
+        return ("canceled" if changed else str(row["status"])), changed
+    finally:
+        conn.close()
+
+
+def cancel_active_jobs(sqlite_path: Path) -> list[str]:
+    """Cancel all queued/processing jobs and return their ids."""
+    conn = _connect(sqlite_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """
+            SELECT id, stages_json
+            FROM jobs
+            WHERE status IN ('queued', 'processing')
+            ORDER BY datetime(updated_at) DESC
+            """
+        ).fetchall()
+        canceled: list[str] = []
+        for row in rows:
+            stages = _canceled_stages(row["stages_json"])
+            cur = conn.execute(
+                """
+                UPDATE jobs SET
+                  status = 'canceled',
+                  summarize_only = 0,
+                  stages_json = ?,
+                  error_message = NULL,
+                  updated_at = datetime('now')
+                WHERE id = ? AND status IN ('queued', 'processing')
+                """,
+                (json.dumps(stages), row["id"]),
+            )
+            if cur.rowcount > 0:
+                canceled.append(row["id"])
+        conn.commit()
+        return canceled
+    finally:
+        conn.close()
+
+
 def delete_jobs_bulk(
     sqlite_path: Path, job_ids: list[str]
 ) -> tuple[list[str], list[dict[str, str]]]:

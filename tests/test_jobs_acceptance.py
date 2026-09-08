@@ -176,7 +176,7 @@ def test_reject_bad_extension() -> None:
     with TestClient(app) as client:
         r = client.post(
             "/jobs",
-            files={"audio_file": ("x.ogg", b"abc", "audio/ogg")},
+            files={"audio_file": ("x.txt", b"abc", "text/plain")},
             data={"asr_model": "fast", "summary_size": "gist"},
         )
     assert r.status_code == 400

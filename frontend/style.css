@@ -90,10 +90,18 @@ code {
 
 .sidebar__head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 0.5rem;
   margin-bottom: 0.65rem;
+}
+
+.sidebar__head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  flex-shrink: 0;
 }
 
 .sidebar__title {
@@ -219,6 +227,11 @@ code {
   outline-offset: 1px;
 }
 
+.history-item__stop {
+  flex-shrink: 0;
+  margin-top: 0.28rem;
+}
+
 .history-item:hover {
   background: transparent;
 }
@@ -335,6 +348,18 @@ code {
   margin: 0 0 1rem;
   font-size: 1rem;
   font-weight: 600;
+}
+
+.panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.panel__head .panel__title--inline {
+  margin: 0;
 }
 
 .dropzone {
@@ -491,6 +516,12 @@ code {
   border: 1px solid var(--border);
   background: var(--surface-2);
   color: var(--text);
+}
+
+.btn--small.btn--danger {
+  background: var(--err);
+  color: #fff;
+  border-color: transparent;
 }
 
 .banner {

@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const ALLOWED = [".wav", ".mp3", ".m4a", ".flac"];
+  const ALLOWED = [".wav", ".mp3", ".m4a", ".flac", ".ogg"];
 
   const dropzone = document.getElementById("dropzone");
   const fileInput = document.getElementById("file-input");
@@ -11,6 +11,8 @@
   const customPrompt = document.getElementById("custom-prompt");
   const btnSubmit = document.getElementById("btn-submit");
   const btnReset = document.getElementById("btn-reset");
+  const btnStopCurrent = document.getElementById("btn-stop-current");
+  const btnStopProgress = document.getElementById("btn-stop-progress");
   const btnRequeueOpen = document.getElementById("btn-requeue-open");
   const btnSummarizeOnlyOpen = document.getElementById("btn-summarize-only-open");
   const formError = document.getElementById("form-error");
@@ -33,6 +35,7 @@
   const historyToolbar = document.getElementById("history-toolbar");
   const historySelectAll = document.getElementById("history-select-all");
   const btnBulkDeleteOpen = document.getElementById("btn-bulk-delete-open");
+  const btnStopAll = document.getElementById("btn-stop-all");
   const historyBulkHint = document.getElementById("history-bulk-hint");
   const historyFeedback = document.getElementById("history-feedback");
   const bulkDeleteModal = document.getElementById("bulk-delete-modal");
@@ -120,6 +123,7 @@
     if (state === "done") return "step--done";
     if (state === "processing") return "step--processing";
     if (state === "error") return "step--error";
+    if (state === "canceled") return "step--error";
     return "step--pending";
   }
 
@@ -161,7 +165,14 @@
     const a = st.asr || "pending";
     const s = st.summarize || "pending";
 
-    if (u === "error" || a === "error" || s === "error" || s === "done") {
+    if (
+      u === "error" ||
+      a === "error" ||
+      s === "error" ||
+      a === "canceled" ||
+      s === "canceled" ||
+      s === "done"
+    ) {
       stopProgressCreep();
       setProgressWidth(base, false);
       return;
@@ -214,7 +225,14 @@
     const u = st.upload || "pending";
     const a = st.asr || "pending";
     const s = st.summarize || "pending";
-    if (u === "error" || a === "error" || s === "error") return 100;
+    if (
+      u === "error" ||
+      a === "error" ||
+      s === "error" ||
+      a === "canceled" ||
+      s === "canceled"
+    )
+      return 100;
     if (s === "done") return 100;
     if (s === "processing") return 78;
     if (a === "done") return 55;
@@ -232,6 +250,7 @@
     }
     if (status === "done") return "Готово";
     if (status === "error") return "Ошибка";
+    if (status === "canceled") return "Остановлено";
     return status;
   }
 
@@ -269,6 +288,16 @@
     btnSummarizeOnlyOpen.hidden = !(
       hasTranscript && lastKnownJobStatus === "done"
     );
+  }
+
+  function isActiveStatus(status) {
+    return status === "queued" || status === "processing";
+  }
+
+  function refreshStopCurrentBtn() {
+    const show = !!(currentJobId && isActiveStatus(lastKnownJobStatus));
+    btnStopCurrent.hidden = !show;
+    if (btnStopProgress) btnStopProgress.hidden = !show;
   }
 
   function formatDetail(data) {
@@ -311,13 +340,12 @@
       statusLine.textContent = statusRu(job.status, job.stages);
       applyStages(job.stages || {});
       refreshSummarizeOnlyBtn();
+      refreshStopCurrentBtn();
 
-      if (
-        job.status === "processing" &&
-        job.stages &&
-        job.stages.asr === "done" &&
-        job.stages.summarize === "processing"
-      ) {
+      // As soon as the backend starts returning a transcript for this job,
+      // show it in out-transcript instead of waiting for the whole session
+      // (ASR + summarization) to complete.
+      if (job.status === "processing") {
         await tryLoadTranscriptEarly();
       }
 
@@ -340,12 +368,24 @@
         refreshHistory();
         return;
       }
+      if (job.status === "canceled") {
+        stopPoll();
+        btnSubmit.disabled = false;
+        transcriptFetchedForJob = null;
+        statusLine.textContent = "Остановлено";
+        applyStages(job.stages || {});
+        refreshSummarizeOnlyBtn();
+        refreshStopCurrentBtn();
+        refreshHistory();
+        return;
+      }
     } catch (e) {
       stopPoll();
       btnSubmit.disabled = false;
       transcriptFetchedForJob = null;
       lastKnownJobStatus = null;
       refreshSummarizeOnlyBtn();
+      refreshStopCurrentBtn();
       showError(e.data ? formatDetail(e.data) : e.message || String(e));
     }
   }
@@ -428,6 +468,7 @@
     outSummary.textContent = "";
     metaLine.textContent = "";
     btnReset.hidden = true;
+    btnStopCurrent.hidden = true;
     btnRequeueOpen.hidden = true;
     btnSummarizeOnlyOpen.hidden = true;
     btnSubmit.disabled = !selectedFile;
@@ -436,6 +477,74 @@
     historyList.querySelectorAll(".history-item").forEach(function (el) {
       el.classList.remove("history-item--active");
     });
+  }
+
+  async function cancelJobById(jobId, options) {
+    const opts = options || {};
+    const res = await fetchJson("/jobs/" + encodeURIComponent(jobId) + "/cancel", {
+      method: "POST",
+    });
+    if (res.canceled && jobId === currentJobId) {
+      const job = await fetchJson("/jobs/" + encodeURIComponent(jobId));
+      stopPoll();
+      lastKnownJobStatus = "canceled";
+      statusLine.textContent = "Остановлено";
+      applyStages(job.stages || {});
+      btnSubmit.disabled = false;
+      transcriptFetchedForJob = null;
+      refreshSummarizeOnlyBtn();
+      refreshStopCurrentBtn();
+    }
+    if (!opts.quiet) {
+      setHistoryFeedback(
+        res.canceled ? "Задача остановлена." : "Задача уже не выполняется.",
+        res.canceled ? "ok" : "warn"
+      );
+    }
+    await refreshHistory();
+    return res;
+  }
+
+  async function cancelCurrentJob() {
+    if (!currentJobId) return;
+    btnStopCurrent.disabled = true;
+    if (btnStopProgress) btnStopProgress.disabled = true;
+    try {
+      await cancelJobById(currentJobId);
+    } catch (e) {
+      showError(e.data ? formatDetail(e.data) : e.message || String(e));
+    } finally {
+      btnStopCurrent.disabled = false;
+      if (btnStopProgress) btnStopProgress.disabled = false;
+      refreshStopCurrentBtn();
+    }
+  }
+
+  async function cancelAllActiveJobs() {
+    btnStopAll.disabled = true;
+    try {
+      const res = await fetchJson("/jobs/cancel-active", { method: "POST" });
+      const canceled = new Set(res.canceled || []);
+      if (currentJobId && canceled.has(currentJobId)) {
+        const job = await fetchJson("/jobs/" + encodeURIComponent(currentJobId));
+        stopPoll();
+        lastKnownJobStatus = "canceled";
+        statusLine.textContent = "Остановлено";
+        applyStages(job.stages || {});
+        btnSubmit.disabled = false;
+        transcriptFetchedForJob = null;
+        refreshSummarizeOnlyBtn();
+        refreshStopCurrentBtn();
+      }
+      setHistoryFeedback(
+        canceled.size ? "Остановлено задач: " + canceled.size : "Активных задач нет.",
+        canceled.size ? "ok" : "warn"
+      );
+      await refreshHistory();
+    } catch (e) {
+      btnStopAll.disabled = false;
+      showError(e.data ? formatDetail(e.data) : e.message || String(e));
+    }
   }
 
   function openBulkDeleteModal() {
@@ -511,6 +620,7 @@
         historyBulkHint.hidden = true;
         historySelectAll.checked = false;
         historySelectAll.indeterminate = false;
+        btnStopAll.disabled = true;
         setHistoryFeedback("", "ok");
         updateBulkDeleteButton();
         return;
@@ -518,7 +628,10 @@
       historyEmpty.hidden = true;
       historyToolbar.hidden = false;
       historyBulkHint.hidden = false;
+      let activeCount = 0;
       jobs.forEach(function (j) {
+        const isActive = isActiveStatus(j.status);
+        if (isActive) activeCount += 1;
         const li = document.createElement("li");
         li.className = "history-item";
         li.setAttribute("data-job-id", j.id);
@@ -552,9 +665,28 @@
         wrap.appendChild(cb);
         row.appendChild(wrap);
         row.appendChild(main);
+        if (isActive) {
+          const stopBtn = document.createElement("button");
+          stopBtn.type = "button";
+          stopBtn.className = "btn btn--small btn--danger history-item__stop";
+          stopBtn.textContent = "Стоп";
+          stopBtn.setAttribute("aria-label", "Остановить задачу: " + name);
+          stopBtn.addEventListener("click", async function (e) {
+            e.stopPropagation();
+            stopBtn.disabled = true;
+            try {
+              await cancelJobById(j.id);
+            } catch (err) {
+              stopBtn.disabled = false;
+              showError(err.data ? formatDetail(err.data) : err.message || String(err));
+            }
+          });
+          row.appendChild(stopBtn);
+        }
         li.appendChild(row);
         historyList.appendChild(li);
       });
+      btnStopAll.disabled = activeCount === 0;
       if (activeHistoryId) setActiveHistory(activeHistoryId);
       updateSelectAllCheckbox();
       updateBulkDeleteButton();
@@ -580,6 +712,7 @@
       lastKnownJobStatus = job.status;
       statusLine.textContent = statusRu(job.status, job.stages);
       applyStages(job.stages || {});
+      refreshStopCurrentBtn();
       if (job.status === "done") {
         progressSection.hidden = true;
         await loadResult();
@@ -600,10 +733,16 @@
         progressSection.hidden = true;
         showError(job.error || "Ошибка");
         refreshSummarizeOnlyBtn();
+      } else if (job.status === "canceled") {
+        progressSection.hidden = false;
+        resultsSection.hidden = true;
+        statusLine.textContent = "Остановлено";
+        refreshSummarizeOnlyBtn();
       }
     } catch (e) {
       lastKnownJobStatus = null;
       refreshSummarizeOnlyBtn();
+      refreshStopCurrentBtn();
       showError(e.data ? formatDetail(e.data) : e.message || String(e));
     }
   }
@@ -653,6 +792,7 @@
       currentJobId = jid;
       activeHistoryId = currentJobId;
       lastKnownJobStatus = "queued";
+      refreshStopCurrentBtn();
       progressSection.hidden = false;
       statusLine.textContent = "В очереди…";
       applyStages({ upload: "done", asr: "done", summarize: "pending" });
@@ -688,6 +828,8 @@
       currentJobId = jid;
       transcriptFetchedForJob = null;
       activeHistoryId = currentJobId;
+      lastKnownJobStatus = "queued";
+      refreshStopCurrentBtn();
       progressSection.hidden = false;
       statusLine.textContent = "В очереди…";
       applyStages({ upload: "done", asr: "pending", summarize: "pending" });
@@ -731,6 +873,8 @@
       const created = await fetchJson("/jobs", { method: "POST", body: fd });
       currentJobId = created.job_id;
       activeHistoryId = currentJobId;
+      lastKnownJobStatus = "queued";
+      refreshStopCurrentBtn();
       statusLine.textContent = "В очереди…";
       applyStages({ upload: "done", asr: "pending", summarize: "pending" });
       stopPoll();
@@ -929,6 +1073,8 @@
 
   btnSubmit.addEventListener("click", submitJob);
   btnReset.addEventListener("click", resetUi);
+  btnStopCurrent.addEventListener("click", cancelCurrentJob);
+  if (btnStopProgress) btnStopProgress.addEventListener("click", cancelCurrentJob);
   btnRequeueOpen.addEventListener("click", openRequeueModal);
   btnSummarizeOnlyOpen.addEventListener("click", openSummarizeOnlyModal);
   requeueCancel.addEventListener("click", closeRequeueModal);
@@ -938,6 +1084,7 @@
   summarizeOnlyBackdrop.addEventListener("click", closeSummarizeOnlyModal);
   summarizeOnlySubmit.addEventListener("click", submitSummarizeOnly);
   btnRefreshHistory.addEventListener("click", refreshHistory);
+  btnStopAll.addEventListener("click", cancelAllActiveJobs);
 
   historySelectAll.addEventListener("change", function () {
     const on = historySelectAll.checked;

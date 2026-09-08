@@ -107,13 +107,28 @@ pip install -e ".[dev]"
      ```bash
      export ATM_OLLAMA_MODEL=qwen2.5:7b-instruct-q4_K_M
      ```
+   - Если в терминале **`command not found: ollama`**: установите Ollama ([dmg](https://ollama.com/download/mac) или `brew install --cask ollama`), **перезапустите терминал**; при необходимости один раз откройте приложение **Ollama** из «Программы». На Mac с Homebrew проверьте, что в `PATH` есть `/opt/homebrew/bin` (Apple Silicon) или `/usr/local/bin` (Intel).
+   - Список загруженных моделей: **`ollama list`** (команда без `--`).
 
 5. **Apple Silicon и падения Ollama / Metal (HTTP 500, `llama runner process has terminated`)**  
-   Запуск сервера с отключением проблемного пути Metal:  
+   Переменные задаются для **процесса `ollama serve`**. Если Ollama уже запущен из приложения или без них, **сначала полностью выйдите** (значок в строке меню → Quit) или выполните `killall Ollama`, затем поднимите сервер заново.
+
+   Чаще всего хотят обойти краш без «хака» частичного отключения Metal-тензоров: полностью выключите GPU для LLM (**медленнее**, зато типичный чистый путь на CPU для Ollama):
+
    ```bash
-   GGML_METAL_TENSOR_DISABLE=1 ollama serve
+   OLLAMA_NUM_GPU=0 ollama serve
    ```  
-   Подробнее: [ollama/ollama#14432](https://github.com/ollama/ollama/issues/14432).
+
+   Либо из репозитория:
+
+   ```bash
+   chmod +x scripts/ollama-serve-macos-cpu.sh
+   ./scripts/ollama-serve-macos-cpu.sh
+   ```  
+
+   Если без GPU всё ещё падает, можно использовать обход через `GGML_METAL_TENSOR_DISABLE=1` ([ollama/ollama#14432](https://github.com/ollama/ollama/issues/14432)) или скрипт `scripts/ollama-serve-macos-metal-safe.sh`.
+
+   Проверка в другом терминале: `ollama run qwen2.5:7b-instruct-q4_K_M "ok"`.
 
 6. **Запуск приложения** (корень репозитория, venv активирован, Ollama уже слушает порт):  
    ```bash
@@ -178,6 +193,7 @@ pip install -e ".[dev]"
      set ATM_OLLAMA_MODEL=qwen2.5:7b-instruct-q4_K_M
      ```  
      В PowerShell: `$env:ATM_OLLAMA_MODEL="qwen2.5:7b-instruct-q4_K_M"`
+   - Список моделей: **`ollama list`**. Если **`ollama` не распознаётся** — переустановите с [ollama.com/download/windows](https://ollama.com/download/windows), откройте новый терминал; при необходимости добавьте каталог установки Ollama в **PATH** пользователя (см. настройки установщика / документацию Ollama).
 
 6. **Запуск приложения** (из корня репозитория, venv активирован):
 
@@ -260,6 +276,7 @@ export ATM_OFFLINE=1          # macOS / Linux
 - `GET /jobs/{id}/transcript` — транскрипт, как только ASR завершён (до готовности всего джоба); **425**, если транскрипта ещё нет; **409**, если джоб упал до транскрипта.
 - `GET /jobs/{id}/result` — транскрипт и саммари, когда джоб `done`.
 - `POST /jobs/{id}/requeue` — JSON `{ "asr_model", "summary_size", "custom_prompt"? }`: снова поставить джоб в очередь с тем же аудиофайлом (файл должен существовать на диске). Нельзя, пока джоб в `processing`.
+- `POST /jobs/{id}/cancel`, `POST /jobs/cancel-active` — остановить одну задачу или все задачи в статусах `queued` / `processing`.
 
 ## Почему саммари через Ollama может быть долгим
 
