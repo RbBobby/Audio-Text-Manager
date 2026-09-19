@@ -37,37 +37,69 @@
 
 ## Установка с нуля
 
-Общий порядок: **Python → зависимости проекта** (в т.ч. **faster-whisper / Whisper** через `pip`) **→ ffmpeg → Ollama → модель Ollama → запуск сервера**. Каталог репозитория в примерах: `audio-text-manager`.
+Общий порядок: **Python 3.10+ и ffmpeg в PATH → Ollama с моделью → `make install` → `make run`**. Каталог репозитория в примерах: `audio-text-manager`.
 
-### Шаг 0. Клонирование и виртуальное окружение (все ОС)
+### Make
+
+Из **корня репозитория**. Venv создаётся сам (`.venv`); активировать его не нужно.
+
+| Цель | macOS / Linux | Windows (cmd) | Зачем |
+|------|---------------|---------------|--------|
+| Справка | `make` / `make help` | `make.bat` | список целей |
+| Зависимости | `make install` | `make.bat install` | `.venv` + `pip install -e ".[dev]"` (pytest, ruff, pre-commit, faster-whisper) |
+| Сервер | `make run` | `make.bat run` | [http://127.0.0.1:8000/app/](http://127.0.0.1:8000/app/) |
+| С `--reload` | `make dev` | `make.bat dev` | правки Python/HTML подхватываются без ручного рестарта |
+| Тесты | `make test` | `make.bat test` | pytest; нужен ffmpeg |
+| Линтер | `make lint` | `make.bat lint` | Ruff, как CI `.github/workflows/lint.yml` |
+| Git hook | `make pre-commit` | `make.bat pre-commit` | ruff `--fix` на staged `.py` |
+| Ollama CPU | `make ollama-cpu` | — | `OLLAMA_NUM_GPU=0 ollama serve` (обход Metal на Apple Silicon) |
+
+Типичный старт (ffmpeg уже в PATH, Ollama слушает `11434`):
 
 ```bash
-git clone https://github.com/RbBobby/Audio-Text-Manager.git
+git clone <URL-репозитория> audio-text-manager
 cd audio-text-manager
-
-python3 -m venv .venv
+make install
+make run
 ```
 
-Активация venv:
+Windows **без GNU Make**: `make.bat install` и `make.bat run` (в PowerShell: `.\make.bat run`). Если установлен GNU Make (Git Bash / chocolatey), те же цели: `make install`, `make run`.
 
-| ОС | Команда |
+Другой порт: `make run PORT=8001` или `set PORT=8001 && make.bat run`. Хост: `HOST=0.0.0.0`.
+
+Перед `make run` нужен **запущенный Ollama**. На Mac при падениях Metal сначала Quit Ollama, затем `make ollama-cpu` (или `make ollama-metal`).
+
+Без Make, venv активирован вручную:
+
+```bash
+uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
+```
+
+### Шаг 0. Клонирование (все ОС)
+
+```bash
+git clone <URL-репозитория> audio-text-manager
+cd audio-text-manager
+```
+
+Дальше достаточно **`make install`** (или `make.bat install`) — см. [Make](#make). Ручной venv нужен только если Make нет:
+
+| ОС | Команды |
 |----|---------|
-| **macOS / Linux** | `source .venv/bin/activate` |
-| **Windows (cmd)** | `.venv\Scripts\activate.bat` |
-| **Windows (PowerShell)** | `.\.venv\Scripts\Activate.ps1` |
+| **macOS / Linux** | `python3 -m venv .venv && source .venv/bin/activate` |
+| **Windows (cmd)** | `python -m venv .venv` затем `.venv\Scripts\activate.bat` |
+| **Windows (PowerShell)** | `python -m venv .venv` затем `.\.venv\Scripts\Activate.ps1` |
 
 Если PowerShell ругается на политику выполнения: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` (один раз для пользователя).
-
-Установка пакета (из корня репозитория, venv активирован):
 
 ```bash
 python -m pip install -U pip
 pip install -e ".[dev]"
 ```
 
-Флаг `-e` (editable) нужен, чтобы импорт `backend.app` работал из корня проекта. Без тестов: `pip install -e .`
+Флаг `-e` (editable) нужен, чтобы импорт `backend.app` работал из корня проекта. Без pytest/ruff: `pip install -e .`
 
-На этом шаге в виртуальное окружение попадает пакет **`faster-whisper`** (движок **Whisper** для транскрибации в проекте). Отдельной команды вида `brew install whisper` для него нет — только `pip` и зависимости из `pyproject.toml`.
+На этом шаге в виртуальное окружение попадает пакет **`faster-whisper`**. Отдельной команды вида `brew install whisper` нет — только `pip` и `pyproject.toml`.
 
 ---
 
@@ -84,7 +116,7 @@ pip install -e ".[dev]"
    Проверка: `ffmpeg -version` и `ffprobe -version`
 
 3. **Whisper (faster-whisper)** — транскрибация  
-   - Библиотека **уже установлена** на шаге 0 вместе с проектом (`pip install -e .` → зависимость `faster-whisper`). Это не отдельный продукт «Whisper.app», а Python-пакет поверх **CTranslate2**.  
+   - Библиотека **уже установлена** вместе с проектом (`make install` → зависимость `faster-whisper`). Это не отдельный продукт «Whisper.app», а Python-пакет поверх **CTranslate2**.  
    - Для работы ASR **обязателен ffmpeg** (п. 2): без него нормализация аудио перед Whisper не выполнится.  
    - **Веса** моделей Whisper (small / medium / large-v3 по пресету `asr_model`) при **первом** запуске распознавания скачиваются автоматически — нужен интернет; подробности и офлайн — в разделе [«Whisper и faster-whisper»](#whisper-и-faster-whisper).  
    - Опционально задайте `ATM_WHISPER_DOWNLOAD_ROOT`, если кэш весов должен лежать не в домашнем каталоге по умолчанию.  
@@ -122,40 +154,25 @@ pip install -e ".[dev]"
    Либо из репозитория:
 
    ```bash
-   chmod +x scripts/ollama-serve-macos-cpu.sh
-   ./scripts/ollama-serve-macos-cpu.sh
-   ```  
+   make ollama-cpu
+   ```
 
-   Если без GPU всё ещё падает, можно использовать обход через `GGML_METAL_TENSOR_DISABLE=1` ([ollama/ollama#14432](https://github.com/ollama/ollama/issues/14432)) или скрипт `scripts/ollama-serve-macos-metal-safe.sh`.
+   Если без GPU всё ещё падает: `make ollama-metal` (`GGML_METAL_TENSOR_DISABLE=1`, [ollama/ollama#14432](https://github.com/ollama/ollama/issues/14432)).
 
    Проверка в другом терминале: `ollama run qwen2.5:7b-instruct-q4_K_M "ok"`.
 
-6. **Запуск приложения** (корень репозитория, Ollama уже слушает порт):
+6. **Запуск приложения** (Ollama уже слушает порт) — [Make](#make):
 
    ```bash
-   make install   # один раз: .venv + pip install -e ".[dev]"
-   make run       # http://127.0.0.1:8000/app/
-   ```
-
-   Без Make (venv активирован):
-   ```bash
-   uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
+   make install
+   make run
    ```
 
 7. **Проверка в браузере**  
    - API: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)  
-   - UI: [http://127.0.0.1:8000/app/](http://127.0.0.1:8000/app/) (если есть каталог `frontend/`)
+   - UI: [http://127.0.0.1:8000/app/](http://127.0.0.1:8000/app/)
 
-8. **Тесты (опционально)**  
-   ```bash
-   make test
-   ```
-
-9. **Линтер** (Ruff; тот же check, что в CI `.github/workflows/lint.yml`)  
-   ```bash
-   make lint
-   make pre-commit   # git hook: ruff check --fix на staged Python
-   ```
+8. **Тесты и линтер** (нужен ffmpeg): `make test`, `make lint`, при желании `make pre-commit`.
 
 ---
 
@@ -166,24 +183,7 @@ pip install -e ".[dev]"
    - Либо: `winget install Python.Python.3.12`  
    - Закройте и снова откройте терминал после установки. Проверка: `python --version`
 
-2. **Виртуальное окружение и зависимости**  
-   Из корня репозитория (GNU Make не нужен):
-
-   ```bat
-   make.bat install
-   ```
-
-   В PowerShell: `.\make.bat install`
-
-   Вручную (cmd):
-   ```bat
-   python -m venv .venv
-   .venv\Scripts\activate.bat
-   python -m pip install -U pip
-   pip install -e ".[dev]"
-   ```
-
-   В PowerShell активация: `.\.venv\Scripts\Activate.ps1`
+2. **Зависимости** — [Make](#make): `make.bat install` (PowerShell: `.\make.bat install`). GNU Make не обязателен.
 
 3. **ffmpeg** (обязательно в `PATH`, вместе с `ffprobe`)  
    Один из вариантов:  
@@ -193,7 +193,7 @@ pip install -e ".[dev]"
    Новый терминал → `ffmpeg -version` и `ffprobe -version`
 
 4. **Whisper (faster-whisper)** — транскрибация  
-   - Устанавливается **вместе с проектом** на шаге 2 (`pip install -e .` → `faster-whisper`). Отдельного установщика Whisper для ASR не требуется.  
+   - Устанавливается **вместе с проектом** на шаге 2 (`make.bat install` → `faster-whisper`). Отдельного установщика Whisper для ASR не требуется.  
    - Нужны **ffmpeg** в PATH (шаг 3) и при первом распознавании — **интернет** для загрузки весов (или заранее подготовленный кэш / `ATM_WHISPER_DOWNLOAD_ROOT`, см. [раздел про Whisper](#whisper-и-faster-whisper)).  
    - Проверка (venv активирован):  
      ```bat
@@ -215,51 +215,25 @@ pip install -e ".[dev]"
      В PowerShell: `$env:ATM_OLLAMA_MODEL="qwen2.5:7b-instruct-q4_K_M"`
    - Список моделей: **`ollama list`**. Если **`ollama` не распознаётся** — переустановите с [ollama.com/download/windows](https://ollama.com/download/windows), откройте новый терминал; при необходимости добавьте каталог установки Ollama в **PATH** пользователя (см. настройки установщика / документацию Ollama).
 
-6. **Запуск приложения** (из корня репозитория, Ollama уже слушает порт):
-
-   ```bat
-   make.bat run
-   ```
-
-   PowerShell: `.\make.bat run`  
-   Другой порт: `set PORT=8001 && make.bat run`
-
-   Без скрипта (venv активирован):
-   ```bat
-   uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
-   ```
+6. **Запуск** (Ollama уже слушает порт): `make.bat run` (PowerShell: `.\make.bat run`). Другой порт: `set PORT=8001 && make.bat run`.
 
 7. **Проверка**  
    - [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)  
    - [http://127.0.0.1:8000/app/](http://127.0.0.1:8000/app/)
 
-8. **Тесты**  
-   ```bat
-   make.bat test
-   ```  
-   Нужен **ffmpeg** в PATH (часть тестов генерирует wav через lavfi).
+8. **Тесты и линтер** (нужен ffmpeg): `make.bat test`, `make.bat lint`, `make.bat pre-commit`.
 
-9. **Линтер**  
-   ```bat
-   make.bat lint
-   make.bat pre-commit
-   ```
-
-Если на «чистом» Windows возникают проблемы со сборкой **faster-whisper** / CTranslate2, имеет смысл поставить [Visual C++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) или использовать **WSL2** (Ubuntu в WSL) и следовать шагам как для Linux: `sudo apt install ffmpeg`, тот же venv и `pip install -e ".[dev]"`.
+Если на «чистом» Windows возникают проблемы со сборкой **faster-whisper** / CTranslate2, имеет смысл поставить [Visual C++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) или использовать **WSL2** (Ubuntu) и шаги как для Linux: `sudo apt install ffmpeg make`, затем `make install && make run`.
 
 ---
 
 ### Linux (кратко)
 
 ```bash
-sudo apt update && sudo apt install -y ffmpeg python3 python3-venv
-python3 -m venv .venv && source .venv/bin/activate
-pip install -U pip && pip install -e ".[dev]"
-# Whisper (faster-whisper) уже в venv; проверка: python -c "from faster_whisper import WhisperModel; print('OK')"
-# Ollama: см. https://ollama.com/download/linux
+sudo apt update && sudo apt install -y ffmpeg python3 python3-venv make
+# Ollama: https://ollama.com/download/linux
 ollama pull qwen2.5:14b-instruct-q4_K_M
 make install && make run
-# или: uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 ```
 
 ---
@@ -327,9 +301,11 @@ export ATM_OFFLINE=1          # macOS / Linux
 ## Структура репозитория
 
 ```
+Makefile         # make install / run / test / lint (macOS, Linux, GNU Make на Windows)
+make.bat         # те же цели в cmd/PowerShell без GNU Make
 backend/app/     # FastAPI, ASR, саммари, джобы, настройки
-frontend/        # статическая оболочка UI (если есть)
-configs/         # пример переменных и комментариев (шпаргалка; код читает env в settings)
+frontend/        # статическая оболочка UI
+configs/         # пример переменных (шпаргалка; код читает env в settings)
 tests/
 ```
 
