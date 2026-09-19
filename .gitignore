@@ -1,6 +1,8 @@
 # Python
 .venv/
+.venv-*/
 venv/
+env/
 __pycache__/
 *.py[cod]
 *$py.class
@@ -12,6 +14,7 @@ dist/
 build/
 *.egg
 pip-wheel-metadata/
+*.pth
 
 # Test / type / lint caches
 .pytest_cache/
@@ -19,33 +22,59 @@ pip-wheel-metadata/
 .ruff_cache/
 .hypothesis/
 .coverage
+.coverage.*
 coverage.xml
 htmlcov/
 .tox/
 .nox/
 
-# Env & secrets
+# Env & local config (app reads env; example yaml stays tracked)
 .env
 .env.*
 !.env.example
+configs/app.yaml
+configs/*.local.yaml
 
 # OS & editors
 .DS_Store
+._*
 Thumbs.db
+ehthumbs.db
+Desktop.ini
 *.swp
 *.swo
 *~
 .idea/
+.vscode/
+.cursor/
+*.code-workspace
 
-# Logs
+# Logs and crash dumps
 *.log
+*.stackdump
 
-# Runtime data (keep layout via .gitkeep)
+# Runtime data: SQLite jobs + uploads/results (keep .gitkeep layout)
+/data/*
+!/data/uploads/
+!/data/results/
 /data/uploads/*
 !/data/uploads/.gitkeep
 /data/results/*
 !/data/results/.gitkeep
-/data/*.db
-/data/*.db-journal
-/data/*.db-wal
-/data/*.db-shm
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# In-repo Whisper cache if ATM_WHISPER_DOWNLOAD_ROOT points here
+/models/
+/whisper-cache/
+
+# Media dropped in the repo root while testing uploads
+/*.wav
+/*.mp3
+/*.m4a
+/*.flac
+/*.ogg
+/*.mp4
+/*.aac
