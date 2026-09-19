@@ -15,6 +15,8 @@ if /I "%CMD%"=="install" goto install
 if /I "%CMD%"=="run" goto run
 if /I "%CMD%"=="dev" goto dev
 if /I "%CMD%"=="test" goto test
+if /I "%CMD%"=="lint" goto lint
+if /I "%CMD%"=="pre-commit" goto precommit
 if /I "%CMD%"=="ollama-cpu" goto ollama
 if /I "%CMD%"=="ollama-metal" goto ollama
 
@@ -25,10 +27,12 @@ goto help
 :help
 echo Audio Text Manager
 echo.
-echo   make.bat install       venv + dependencies (including pytest)
+echo   make.bat install       venv + dependencies (pytest, ruff, pre-commit)
 echo   make.bat run           server  http://%HOST%:%PORT%/app/
 echo   make.bat dev           same, with --reload
 echo   make.bat test          pytest
+echo   make.bat lint          ruff check backend tests
+echo   make.bat pre-commit    install git hook (ruff on commit)
 echo.
 echo ffmpeg must be on PATH. Start Ollama (Start menu or: ollama serve).
 echo Override host/port: set PORT=8001 ^&^& make.bat run
@@ -90,6 +94,24 @@ if errorlevel 1 exit /b 1
 if errorlevel 1 call :install
 if errorlevel 1 exit /b 1
 "%VPY%" -m pytest
+exit /b %ERRORLEVEL%
+
+:lint
+call :ensure_venv
+if errorlevel 1 exit /b 1
+"%VPY%" -c "import ruff" >nul 2>&1
+if errorlevel 1 call :install
+if errorlevel 1 exit /b 1
+"%VPY%" -m ruff check backend tests
+exit /b %ERRORLEVEL%
+
+:precommit
+call :ensure_venv
+if errorlevel 1 exit /b 1
+"%VPY%" -c "import pre_commit" >nul 2>&1
+if errorlevel 1 call :install
+if errorlevel 1 exit /b 1
+"%VPY%" -m pre_commit install
 exit /b %ERRORLEVEL%
 
 :ollama

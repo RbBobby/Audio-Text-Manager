@@ -54,7 +54,7 @@ def get_job(sqlite_path: Path, job_id: str) -> dict[str, Any] | None:
         row = cur.fetchone()
         if row is None:
             return None
-        return {k: row[k] for k in row.keys()}
+        return dict(row)
     finally:
         conn.close()
 

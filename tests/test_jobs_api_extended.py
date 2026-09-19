@@ -5,9 +5,8 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
-
 from backend.app.jobs import repository as repo
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture
@@ -222,7 +221,7 @@ def test_requeue_409_while_processing(
 def test_list_jobs_order(
     client_isolated: tuple[TestClient, Path], tiny_wav: Path
 ) -> None:
-    client, tmp = client_isolated
+    client, _tmp = client_isolated
     ids = []
     for i in range(2):
         with tiny_wav.open("rb") as f:

@@ -151,6 +151,12 @@ pip install -e ".[dev]"
    make test
    ```
 
+9. **Линтер** (Ruff; тот же check, что в CI `.github/workflows/lint.yml`)  
+   ```bash
+   make lint
+   make pre-commit   # git hook: ruff check --fix на staged Python
+   ```
+
 ---
 
 ### Установка на Windows
@@ -232,6 +238,12 @@ pip install -e ".[dev]"
    make.bat test
    ```  
    Нужен **ffmpeg** в PATH (часть тестов генерирует wav через lavfi).
+
+9. **Линтер**  
+   ```bat
+   make.bat lint
+   make.bat pre-commit
+   ```
 
 Если на «чистом» Windows возникают проблемы со сборкой **faster-whisper** / CTranslate2, имеет смысл поставить [Visual C++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) или использовать **WSL2** (Ubuntu в WSL) и следовать шагам как для Linux: `sudo apt install ffmpeg`, тот же venv и `pip install -e ".[dev]"`.
 

@@ -6,10 +6,9 @@ import time
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
-
 from backend.app.jobs import repository as repo
 from backend.app.settings import Settings
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture
@@ -217,13 +216,12 @@ def test_reject_mp4_without_audio(tmp_path: Path) -> None:
     _write_mp4(src, with_audio=False)
     from backend.app.main import app
 
-    with TestClient(app) as client:
-        with src.open("rb") as f:
-            r = client.post(
-                "/jobs",
-                files={"audio_file": ("silent.mp4", f, "video/mp4")},
-                data={"asr_model": "fast", "summary_size": "gist"},
-            )
+    with TestClient(app) as client, src.open("rb") as f:
+        r = client.post(
+            "/jobs",
+            files={"audio_file": ("silent.mp4", f, "video/mp4")},
+            data={"asr_model": "fast", "summary_size": "gist"},
+        )
     assert r.status_code == 400
     assert "audio" in r.json()["detail"].lower()
 
@@ -257,13 +255,12 @@ def test_audio_over_limit_413_even_if_video_limit_is_huge(
     monkeypatch.setenv("ATM_MAX_VIDEO_UPLOAD_BYTES", str(50 * 1024 * 1024))
     from backend.app.main import app
 
-    with TestClient(app) as client:
-        with tiny_audio.open("rb") as f:
-            r = client.post(
-                "/jobs",
-                files={"audio_file": ("big.wav", f, "audio/wav")},
-                data={"asr_model": "fast", "summary_size": "gist"},
-            )
+    with TestClient(app) as client, tiny_audio.open("rb") as f:
+        r = client.post(
+            "/jobs",
+            files={"audio_file": ("big.wav", f, "audio/wav")},
+            data={"asr_model": "fast", "summary_size": "gist"},
+        )
     assert r.status_code == 413
     detail = r.json()["detail"].lower()
     assert "audio" in detail

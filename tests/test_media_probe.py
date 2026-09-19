@@ -5,7 +5,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
 from backend.app.media_probe import audio_duration_seconds
 
 

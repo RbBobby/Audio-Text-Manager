@@ -58,14 +58,13 @@ class OllamaClient:
         *,
         options: dict[str, Any] | None = None,
     ) -> str:
-        last: Exception | None = None
         for attempt in range(2):
             try:
                 return self._chat_once(messages, options=options)
-            except (httpx.HTTPError, OllamaError) as e:
+            except (httpx.HTTPError, OllamaError):
                 if attempt == 0:
                     continue
-                raise e
+                raise
 
     def _chat_once(
         self,

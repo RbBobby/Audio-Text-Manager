@@ -12,15 +12,17 @@ else
   PY := $(VENV)/bin/python
 endif
 
-.PHONY: help install run dev test ollama-cpu ollama-metal
+.PHONY: help install run dev test lint pre-commit ollama-cpu ollama-metal
 
 help:
 	@echo "Audio Text Manager"
 	@echo
-	@echo "  make install       venv + зависимости (включая pytest)"
+	@echo "  make install       venv + зависимости (включая pytest, ruff, pre-commit)"
 	@echo "  make run           сервер  http://$(HOST):$(PORT)/app/"
 	@echo "  make dev           то же, с --reload"
 	@echo "  make test          pytest"
+	@echo "  make lint          ruff check backend tests"
+	@echo "  make pre-commit    установить git hook (ruff на коммите)"
 	@echo "  make ollama-cpu    ollama serve без GPU (обход крашей Metal на Apple Silicon)"
 	@echo
 	@echo "Перед make run нужен ffmpeg в PATH и запущенный Ollama (ollama serve)."
@@ -45,6 +47,14 @@ dev: $(PY)
 test: $(PY)
 	@$(PY) -c "import pytest" || $(MAKE) install
 	$(PY) -m pytest
+
+lint: $(PY)
+	@$(PY) -c "import ruff" || $(MAKE) install
+	$(PY) -m ruff check backend tests
+
+pre-commit: $(PY)
+	@$(PY) -c "import pre_commit" || $(MAKE) install
+	$(PY) -m pre_commit install
 
 ifeq ($(OS),Windows_NT)
 ollama-cpu ollama-metal:
