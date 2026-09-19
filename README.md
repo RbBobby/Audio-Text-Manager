@@ -130,7 +130,14 @@ pip install -e ".[dev]"
 
    Проверка в другом терминале: `ollama run qwen2.5:7b-instruct-q4_K_M "ok"`.
 
-6. **Запуск приложения** (корень репозитория, venv активирован, Ollama уже слушает порт):  
+6. **Запуск приложения** (корень репозитория, Ollama уже слушает порт):
+
+   ```bash
+   make install   # один раз: .venv + pip install -e ".[dev]"
+   make run       # http://127.0.0.1:8000/app/
+   ```
+
+   Без Make (venv активирован):
    ```bash
    uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
    ```
@@ -141,7 +148,7 @@ pip install -e ".[dev]"
 
 8. **Тесты (опционально)**  
    ```bash
-   pytest
+   make test
    ```
 
 ---
@@ -224,7 +231,8 @@ pip install -U pip && pip install -e ".[dev]"
 # Whisper (faster-whisper) уже в venv; проверка: python -c "from faster_whisper import WhisperModel; print('OK')"
 # Ollama: см. https://ollama.com/download/linux
 ollama pull qwen2.5:14b-instruct-q4_K_M
-uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
+make install && make run
+# или: uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 ```
 
 ---
