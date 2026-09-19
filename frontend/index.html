@@ -4,7 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Audio Text Manager</title>
-    <link rel="stylesheet" href="style.css" />
+    <meta http-equiv="Cache-Control" content="no-cache" />
+    <link rel="stylesheet" href="style.css?v=20250625" />
   </head>
   <body>
     <div class="page">
@@ -12,7 +13,7 @@
         <div class="header__inner">
           <h1 class="title">Audio Text Manager</h1>
           <p class="subtitle">
-            Локальная транскрибация и саммари. Форматы: wav, mp3, m4a, flac.
+            Локальная транскрибация и саммари. Форматы: wav, mp3, m4a, flac, ogg, mp4.
           </p>
         </div>
       </header>
@@ -21,9 +22,20 @@
         <aside class="sidebar" aria-labelledby="history-heading">
           <div class="sidebar__head">
             <h2 id="history-heading" class="sidebar__title">История</h2>
-            <button id="btn-refresh-history" type="button" class="btn btn--small">
-              Обновить
-            </button>
+            <div class="sidebar__head-actions">
+              <button
+                type="button"
+                id="btn-stop-all"
+                class="btn btn--small btn--danger"
+                disabled
+                title="Остановить все задачи в очереди и в обработке"
+              >
+                Стоп все
+              </button>
+              <button id="btn-refresh-history" type="button" class="btn btn--small">
+                Обновить
+              </button>
+            </div>
           </div>
           <div class="sidebar__toolbar" id="history-toolbar" hidden>
             <label class="history-select-all">
@@ -74,7 +86,7 @@
                 <input
                   id="file-input"
                   type="file"
-                  accept=".wav,.mp3,.m4a,.flac,audio/*"
+                  accept=".wav,.mp3,.m4a,.flac,.ogg,.mp4,audio/*,video/mp4"
                   hidden
                 />
                 <div class="dropzone__icon" aria-hidden="true">⬆</div>
@@ -123,6 +135,14 @@
                   Новая задача
                 </button>
                 <button
+                  id="btn-stop-current"
+                  type="button"
+                  class="btn btn--danger"
+                  hidden
+                >
+                  Стоп
+                </button>
+                <button
                   id="btn-requeue-open"
                   type="button"
                   class="btn btn--ghost"
@@ -144,7 +164,17 @@
             </section>
 
             <section id="progress-section" class="panel panel--progress" hidden>
-              <h2 class="panel__title">Прогресс</h2>
+              <div class="panel__head">
+                <h2 class="panel__title panel__title--inline">Прогресс</h2>
+                <button
+                  id="btn-stop-progress"
+                  type="button"
+                  class="btn btn--small btn--danger"
+                  hidden
+                >
+                  Стоп
+                </button>
+              </div>
               <p id="status-line" class="status-line muted"></p>
               <ol class="steps" aria-label="Этапы обработки">
                 <li class="step" data-stage="upload">
@@ -224,6 +254,7 @@
 
           <footer class="footer muted">
             API: <code>/jobs</code> · <code>POST /jobs/bulk-delete</code> ·
+            <code>POST /jobs/cancel-active</code> ·
             <a href="/docs">OpenAPI</a>
           </footer>
         </div>
@@ -335,6 +366,6 @@
       </div>
     </div>
 
-    <script src="app.js"></script>
+    <script src="app.js?v=20260908b"></script>
   </body>
 </html>

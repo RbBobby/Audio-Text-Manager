@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from backend.app.asr import parse_asr_preset, whisper_model_name
 from backend.app.summary import parse_summary_size
 

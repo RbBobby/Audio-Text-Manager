@@ -85,6 +85,16 @@ class JobSummarizeOnlyResponse(BaseModel):
     status: str
 
 
+class JobCancelResponse(BaseModel):
+    job_id: str
+    status: str
+    canceled: bool
+
+
+class JobCancelAllResponse(BaseModel):
+    canceled: list[str]
+
+
 class JobBulkDeleteBody(BaseModel):
     job_ids: list[str] = Field(
         ...,

@@ -55,5 +55,7 @@ summary:
 # ATM_WHISPER_LOCAL_ONLY=1 — same for Whisper without full offline
 # ATM_WHISPER_DOWNLOAD_ROOT — cache dir for CTranslate2 models
 # ATM_MAX_AUDIO_DURATION_SEC — reject longer files (0 = off); needs ffprobe
+# ATM_MAX_UPLOAD_BYTES — max audio upload size (default 500 MiB)
+# ATM_MAX_VIDEO_UPLOAD_BYTES — max .mp4 upload size before audio extract (default 4 GiB)
 # ATM_LOG_LEVEL — DEBUG, INFO, WARNING, ERROR
 # ATM_OLLAMA_DISABLE_TRUST_ENV=1 — httpx Client(trust_env=False)

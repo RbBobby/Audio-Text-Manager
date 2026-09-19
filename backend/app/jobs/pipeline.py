@@ -27,6 +27,10 @@ _M5_OLLAMA_METAL_HINT = (
 _transcribers: dict[tuple[bool, str], Transcriber] = {}
 
 
+class JobCanceled(RuntimeError):
+    pass
+
+
 def _get_transcriber(settings: Settings) -> Transcriber:
     key = (
         settings.whisper_local_files_only,
@@ -60,6 +64,9 @@ def run_pipeline(job_id: str, settings: Settings) -> None:
         row2 = repo.get_job(db, job_id)
         if not row2:
             return
+        if row2["status"] == "canceled":
+            logger.info("Job %s was canceled; keeping canceled status", job_id)
+            return
         st = json.loads(row2["stages_json"])
         if row2.get("transcript"):
             st["summarize"] = "error"
@@ -80,7 +87,13 @@ def run_pipeline(job_id: str, settings: Settings) -> None:
             error_message=detail,
         )
 
+    def stop_if_canceled() -> None:
+        latest = repo.get_job(db, job_id)
+        if not latest or latest["status"] == "canceled":
+            raise JobCanceled(f"Job {job_id} canceled")
+
     try:
+        stop_if_canceled()
         if summarize_only:
             transcript_text = (row.get("transcript") or "").strip()
             if not transcript_text:
@@ -107,6 +120,7 @@ def run_pipeline(job_id: str, settings: Settings) -> None:
             logger.info("Job %s ASR start preset=%s file=%s", job_id, preset, audio)
             t0 = time.perf_counter()
             tr = _get_transcriber(settings).transcribe(audio, preset)
+            stop_if_canceled()
             asr_ms = int((time.perf_counter() - t0) * 1000)
             transcript_text = tr.text
             whisper_model = tr.whisper_model
@@ -121,6 +135,7 @@ def run_pipeline(job_id: str, settings: Settings) -> None:
                 transcript=transcript_text,
             )
 
+        stop_if_canceled()
         logger.info("Job %s summarize start size=%s summarize_only=%s", job_id, summary_size, summarize_only)
         t1 = time.perf_counter()
         ollama_opts: dict = {
@@ -160,6 +175,7 @@ def run_pipeline(job_id: str, settings: Settings) -> None:
                 )
             else:
                 sr = summarizer.summarize(transcript_text, summary_size)
+        stop_if_canceled()
         sum_ms = int((time.perf_counter() - t1) * 1000)
 
         st2 = {"upload": "done", "asr": "done", "summarize": "done"}
@@ -197,5 +213,7 @@ def run_pipeline(job_id: str, settings: Settings) -> None:
             sr.source_chunks,
             summarize_only,
         )
+    except JobCanceled:
+        logger.info("Job %s canceled", job_id)
     except Exception as e:
         fail(e)

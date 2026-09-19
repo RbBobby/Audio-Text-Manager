@@ -8,8 +8,8 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from starlette import status
 
-from backend.app.asr import parse_asr_preset
-from backend.app.media_probe import audio_duration_seconds
+from backend.app.asr import FFmpegError, normalize_audio_for_whisper, parse_asr_preset
+from backend.app.media_probe import audio_duration_seconds, has_audio_stream
 from backend.app.settings import Settings
 from backend.app.summary import parse_summary_size
 
@@ -18,6 +18,8 @@ from .schemas import (
     JobBulkDeleteBody,
     JobBulkDeleteResponse,
     JobBulkDeleteSkipped,
+    JobCancelAllResponse,
+    JobCancelResponse,
     JobCreateResponse,
     JobListItem,
     JobListResponse,
@@ -33,7 +35,9 @@ from .schemas import (
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 logger = logging.getLogger(__name__)
 
-ALLOWED_AUDIO_EXT = frozenset({".wav", ".mp3", ".m4a", ".flac"})
+# Supported upload formats (audio, plus video from which we extract audio).
+# Keep in sync with the frontend <input accept=...> and README.
+ALLOWED_AUDIO_EXT = frozenset({".wav", ".mp3", ".m4a", ".flac", ".ogg", ".mp4"})
 
 
 def _row_to_status(row: dict) -> JobStatusResponse:
@@ -82,6 +86,16 @@ def bulk_delete_jobs(request: Request, body: JobBulkDeleteBody) -> JobBulkDelete
     return JobBulkDeleteResponse(deleted=deleted, skipped=skipped)
 
 
+@router.post("/cancel-active", response_model=JobCancelAllResponse)
+def cancel_active_jobs(request: Request) -> JobCancelAllResponse:
+    """Остановить все задачи, которые стоят в очереди или сейчас выполняются."""
+    settings: Settings = request.app.state.settings
+    canceled = repo.cancel_active_jobs(settings.sqlite_path)
+    if canceled:
+        logger.info("Canceled %d active job(s)", len(canceled))
+    return JobCancelAllResponse(canceled=canceled)
+
+
 @router.post("", response_model=JobCreateResponse)
 async def create_job(
     request: Request,
@@ -117,6 +131,14 @@ async def create_job(
 
     job_id = str(uuid.uuid4())
     dest = settings.uploads_dir / f"{job_id}{ext}"
+    size_limit = (
+        settings.max_video_upload_bytes
+        if ext == ".mp4"
+        else settings.max_upload_bytes
+    )
+    limit_env = (
+        "ATM_MAX_VIDEO_UPLOAD_BYTES" if ext == ".mp4" else "ATM_MAX_UPLOAD_BYTES"
+    )
 
     total = 0
     try:
@@ -126,12 +148,40 @@ async def create_job(
                 if not chunk:
                     break
                 total += len(chunk)
-                if total > settings.max_upload_bytes:
-                    raise HTTPException(status_code=413, detail="File too large")
+                if total > size_limit:
+                    kind = "video" if ext == ".mp4" else "audio"
+                    raise HTTPException(
+                        status_code=413,
+                        detail=(
+                            f"File too large: {total} bytes exceeds {kind} limit "
+                            f"{size_limit} bytes ({limit_env})"
+                        ),
+                    )
                 out.write(chunk)
     except HTTPException:
         dest.unlink(missing_ok=True)
         raise
+
+    if ext == ".mp4":
+        audio_present = has_audio_stream(dest)
+        if audio_present is False:
+            dest.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=400,
+                detail="No audio track in video; cannot transcribe",
+            )
+        wav_dest = settings.uploads_dir / f"{job_id}.wav"
+        try:
+            normalize_audio_for_whisper(dest, wav_dest)
+        except (FFmpegError, FileNotFoundError, OSError) as e:
+            dest.unlink(missing_ok=True)
+            wav_dest.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Could not extract audio from video: {e}",
+            ) from e
+        dest.unlink(missing_ok=True)
+        dest = wav_dest
 
     if settings.max_audio_duration_sec > 0:
         duration = audio_duration_seconds(dest)
@@ -299,6 +349,19 @@ def summarize_only_endpoint(
         raise HTTPException(status_code=400, detail=str(e)) from None
     logger.info("Job %s queued summarize-only size=%s", job_id, size)
     return JobSummarizeOnlyResponse(job_id=job_id, status="queued")
+
+
+@router.post("/{job_id}/cancel", response_model=JobCancelResponse)
+def cancel_job_endpoint(request: Request, job_id: str) -> JobCancelResponse:
+    """Остановить одну задачу, если она в очереди или в обработке."""
+    settings: Settings = request.app.state.settings
+    try:
+        status_value, canceled = repo.cancel_job(settings.sqlite_path, job_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Job not found") from None
+    if canceled:
+        logger.info("Job %s canceled", job_id)
+    return JobCancelResponse(job_id=job_id, status=status_value, canceled=canceled)
 
 
 @router.get("/{job_id}", response_model=JobStatusResponse)

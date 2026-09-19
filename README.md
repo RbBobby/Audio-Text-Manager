@@ -1,13 +1,13 @@
 # Audio Text Manager
 
-Локальный сервис: загрузка аудио → **распознавание речи** ([faster-whisper](https://github.com/SYSTRAN/faster-whisper)) → **саммари** через [Ollama](https://ollama.com/) (`/api/chat`). API на **FastAPI**, фоновые джобы — воркер в том же процессе.
+Локальный сервис: загрузка аудио (и видео **mp4**, из которого берётся только звук) → **распознавание речи** ([faster-whisper](https://github.com/SYSTRAN/faster-whisper)) → **саммари** через [Ollama](https://ollama.com/) (`/api/chat`). API на **FastAPI**, фоновые джобы — воркер в том же процессе.
 
 ## Требования
 
 | Компонент | Зачем |
 |-----------|--------|
 | **Python 3.10+** | бэкенд и тесты |
-| **ffmpeg** (+ **ffprobe** в составе ffmpeg) | нормализация аудио перед Whisper |
+| **ffmpeg** (+ **ffprobe** в составе ffmpeg) | нормализация аудио перед Whisper; для `.mp4` извлекается первая аудиодорожка |
 | **Ollama** | LLM для саммари (локально, `http://127.0.0.1:11434` по умолчанию) |
 | **Интернет** (первый запуск) | скачивание весов Whisper и модели Ollama |
 
@@ -22,7 +22,7 @@
 | Что | Где в проекте / как задаётся |
 |-----|------------------------------|
 | Зависимость | `faster-whisper` в `pyproject.toml`; ставится вместе с `pip install -e .` |
-| Нормализация аудио перед ASR | **ffmpeg** (обязателен в `PATH`) — см. `backend/app/asr/ffmpeg_normalize.py` |
+| Нормализация аудио перед ASR | **ffmpeg** (обязателен в `PATH`) — см. `backend/app/asr/ffmpeg_normalize.py`; для `.mp4` берётся поток `0:a:0`, видео не кодируется |
 | Пресеты скорости/качества | `backend/app/asr/presets.py` → в API поле `asr_model`: `fast` / `medium` / `high` |
 | Соответствие чекпоинтам Systran | `fast` → `small`, `medium` → `medium`, `high` → `large-v3` |
 | Кэш весов и офлайн | Переменные `ATM_WHISPER_DOWNLOAD_ROOT`, `ATM_WHISPER_LOCAL_ONLY`, `ATM_OFFLINE` (см. ниже и `configs/app.example.yaml`) |
@@ -107,15 +107,37 @@ pip install -e ".[dev]"
      ```bash
      export ATM_OLLAMA_MODEL=qwen2.5:7b-instruct-q4_K_M
      ```
+   - Если в терминале **`command not found: ollama`**: установите Ollama ([dmg](https://ollama.com/download/mac) или `brew install --cask ollama`), **перезапустите терминал**; при необходимости один раз откройте приложение **Ollama** из «Программы». На Mac с Homebrew проверьте, что в `PATH` есть `/opt/homebrew/bin` (Apple Silicon) или `/usr/local/bin` (Intel).
+   - Список загруженных моделей: **`ollama list`** (команда без `--`).
 
 5. **Apple Silicon и падения Ollama / Metal (HTTP 500, `llama runner process has terminated`)**  
-   Запуск сервера с отключением проблемного пути Metal:  
-   ```bash
-   GGML_METAL_TENSOR_DISABLE=1 ollama serve
-   ```  
-   Подробнее: [ollama/ollama#14432](https://github.com/ollama/ollama/issues/14432).
+   Переменные задаются для **процесса `ollama serve`**. Если Ollama уже запущен из приложения или без них, **сначала полностью выйдите** (значок в строке меню → Quit) или выполните `killall Ollama`, затем поднимите сервер заново.
 
-6. **Запуск приложения** (корень репозитория, venv активирован, Ollama уже слушает порт):  
+   Чаще всего хотят обойти краш без «хака» частичного отключения Metal-тензоров: полностью выключите GPU для LLM (**медленнее**, зато типичный чистый путь на CPU для Ollama):
+
+   ```bash
+   OLLAMA_NUM_GPU=0 ollama serve
+   ```  
+
+   Либо из репозитория:
+
+   ```bash
+   chmod +x scripts/ollama-serve-macos-cpu.sh
+   ./scripts/ollama-serve-macos-cpu.sh
+   ```  
+
+   Если без GPU всё ещё падает, можно использовать обход через `GGML_METAL_TENSOR_DISABLE=1` ([ollama/ollama#14432](https://github.com/ollama/ollama/issues/14432)) или скрипт `scripts/ollama-serve-macos-metal-safe.sh`.
+
+   Проверка в другом терминале: `ollama run qwen2.5:7b-instruct-q4_K_M "ok"`.
+
+6. **Запуск приложения** (корень репозитория, Ollama уже слушает порт):
+
+   ```bash
+   make install   # один раз: .venv + pip install -e ".[dev]"
+   make run       # http://127.0.0.1:8000/app/
+   ```
+
+   Без Make (venv активирован):
    ```bash
    uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
    ```
@@ -126,7 +148,13 @@ pip install -e ".[dev]"
 
 8. **Тесты (опционально)**  
    ```bash
-   pytest
+   make test
+   ```
+
+9. **Линтер** (Ruff; тот же check, что в CI `.github/workflows/lint.yml`)  
+   ```bash
+   make lint
+   make pre-commit   # git hook: ruff check --fix на staged Python
    ```
 
 ---
@@ -138,9 +166,16 @@ pip install -e ".[dev]"
    - Либо: `winget install Python.Python.3.12`  
    - Закройте и снова откройте терминал после установки. Проверка: `python --version`
 
-2. **Виртуальное окружение и pip**  
-   В **cmd** или **PowerShell** из каталога репозитория:
+2. **Виртуальное окружение и зависимости**  
+   Из корня репозитория (GNU Make не нужен):
 
+   ```bat
+   make.bat install
+   ```
+
+   В PowerShell: `.\make.bat install`
+
+   Вручную (cmd):
    ```bat
    python -m venv .venv
    .venv\Scripts\activate.bat
@@ -178,9 +213,18 @@ pip install -e ".[dev]"
      set ATM_OLLAMA_MODEL=qwen2.5:7b-instruct-q4_K_M
      ```  
      В PowerShell: `$env:ATM_OLLAMA_MODEL="qwen2.5:7b-instruct-q4_K_M"`
+   - Список моделей: **`ollama list`**. Если **`ollama` не распознаётся** — переустановите с [ollama.com/download/windows](https://ollama.com/download/windows), откройте новый терминал; при необходимости добавьте каталог установки Ollama в **PATH** пользователя (см. настройки установщика / документацию Ollama).
 
-6. **Запуск приложения** (из корня репозитория, venv активирован):
+6. **Запуск приложения** (из корня репозитория, Ollama уже слушает порт):
 
+   ```bat
+   make.bat run
+   ```
+
+   PowerShell: `.\make.bat run`  
+   Другой порт: `set PORT=8001 && make.bat run`
+
+   Без скрипта (venv активирован):
    ```bat
    uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
    ```
@@ -191,9 +235,15 @@ pip install -e ".[dev]"
 
 8. **Тесты**  
    ```bat
-   pytest
+   make.bat test
    ```  
    Нужен **ffmpeg** в PATH (часть тестов генерирует wav через lavfi).
+
+9. **Линтер**  
+   ```bat
+   make.bat lint
+   make.bat pre-commit
+   ```
 
 Если на «чистом» Windows возникают проблемы со сборкой **faster-whisper** / CTranslate2, имеет смысл поставить [Visual C++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) или использовать **WSL2** (Ubuntu в WSL) и следовать шагам как для Linux: `sudo apt install ffmpeg`, тот же venv и `pip install -e ".[dev]"`.
 
@@ -208,7 +258,8 @@ pip install -U pip && pip install -e ".[dev]"
 # Whisper (faster-whisper) уже в venv; проверка: python -c "from faster_whisper import WhisperModel; print('OK')"
 # Ollama: см. https://ollama.com/download/linux
 ollama pull qwen2.5:14b-instruct-q4_K_M
-uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
+make install && make run
+# или: uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 ```
 
 ---
@@ -240,6 +291,8 @@ export ATM_OFFLINE=1          # macOS / Linux
 | `ATM_DATA_DIR` | корень данных (по умолчанию `data`) |
 | `ATM_SQLITE_PATH` | путь к SQLite джобов (по умолчанию `$ATM_DATA_DIR/app.db`) |
 | `ATM_UPLOADS_DIR` | каталог загруженных аудио (по умолчанию `$ATM_DATA_DIR/uploads`) |
+| `ATM_MAX_UPLOAD_BYTES` | лимит размера аудио (wav/mp3/m4a/flac/ogg), по умолчанию 500 MB |
+| `ATM_MAX_VIDEO_UPLOAD_BYTES` | лимит размера `.mp4` до извлечения звука, по умолчанию 4 GB |
 | `ATM_OLLAMA_BASE_URL` | URL Ollama (по умолчанию `http://127.0.0.1:11434`) |
 | `ATM_OLLAMA_MODEL` | тег модели в Ollama |
 | `ATM_OFFLINE` | офлайн: Whisper без скачивания, Ollama `trust_env=false` |
@@ -254,12 +307,13 @@ export ATM_OFFLINE=1          # macOS / Linux
 
 ## API в двух словах
 
-- `POST /jobs` — форма: `audio_file`, `asr_model` (`fast` \| `medium` \| `high`), `summary_size` (`gist` \| `executive` \| `meeting`; для старых клиентов по-прежнему принимаются `short` \| `medium` \| `long` как синонимы), опционально `custom_prompt` — тогда саммари одним запросом к Ollama по вашей инструкции (иначе пресеты по `summary_size`).
+- `POST /jobs` — форма: `audio_file` (аудио или `.mp4` с звуком), `asr_model` (`fast` \| `medium` \| `high`), `summary_size` (`gist` \| `executive` \| `meeting`; для старых клиентов по-прежнему принимаются `short` \| `medium` \| `long` как синонимы), опционально `custom_prompt` — тогда саммари одним запросом к Ollama по вашей инструкции (иначе пресеты по `summary_size`).
 - `GET /jobs` — список последних джобов (`limit`, `offset`), без больших полей.
 - `GET /jobs/{id}` — статус и стадии.
 - `GET /jobs/{id}/transcript` — транскрипт, как только ASR завершён (до готовности всего джоба); **425**, если транскрипта ещё нет; **409**, если джоб упал до транскрипта.
 - `GET /jobs/{id}/result` — транскрипт и саммари, когда джоб `done`.
 - `POST /jobs/{id}/requeue` — JSON `{ "asr_model", "summary_size", "custom_prompt"? }`: снова поставить джоб в очередь с тем же аудиофайлом (файл должен существовать на диске). Нельзя, пока джоб в `processing`.
+- `POST /jobs/{id}/cancel`, `POST /jobs/cancel-active` — остановить одну задачу или все задачи в статусах `queued` / `processing`.
 
 ## Почему саммари через Ollama может быть долгим
 

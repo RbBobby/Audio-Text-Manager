@@ -5,9 +5,8 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
-
 from backend.app.jobs import repository as repo
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture
@@ -222,7 +221,7 @@ def test_requeue_409_while_processing(
 def test_list_jobs_order(
     client_isolated: tuple[TestClient, Path], tiny_wav: Path
 ) -> None:
-    client, tmp = client_isolated
+    client, _tmp = client_isolated
     ids = []
     for i in range(2):
         with tiny_wav.open("rb") as f:
@@ -383,3 +382,48 @@ def test_bulk_delete_not_found_is_skipped(
     assert rd.status_code == 200
     assert rd.json()["deleted"] == []
     assert rd.json()["skipped"][0]["reason"] == "not_found"
+
+
+def test_cancel_queued_job(
+    client_isolated: tuple[TestClient, Path], tiny_wav: Path
+) -> None:
+    client, tmp = client_isolated
+    with tiny_wav.open("rb") as f:
+        r = client.post(
+            "/jobs",
+            files={"audio_file": ("a.wav", f, "audio/wav")},
+            data={"asr_model": "fast", "summary_size": "gist"},
+        )
+    job_id = r.json()["job_id"]
+    cr = client.post(f"/jobs/{job_id}/cancel")
+    assert cr.status_code == 200
+    assert cr.json() == {"job_id": job_id, "status": "canceled", "canceled": True}
+    row = repo.get_job(Path(tmp / "jobs.sqlite"), job_id)
+    assert row["status"] == "canceled"
+
+
+def test_cancel_active_jobs(
+    client_isolated: tuple[TestClient, Path], tiny_wav: Path
+) -> None:
+    client, tmp = client_isolated
+    ids = []
+    for name in ("a.wav", "b.wav"):
+        with tiny_wav.open("rb") as f:
+            r = client.post(
+                "/jobs",
+                files={"audio_file": (name, f, "audio/wav")},
+                data={"asr_model": "fast", "summary_size": "gist"},
+            )
+        ids.append(r.json()["job_id"])
+    db = Path(tmp / "jobs.sqlite")
+    repo.update_stages_and_optional(
+        db,
+        ids[1],
+        stages={"upload": "done", "asr": "processing", "summarize": "pending"},
+        status="processing",
+    )
+    cr = client.post("/jobs/cancel-active")
+    assert cr.status_code == 200
+    assert set(cr.json()["canceled"]) == set(ids)
+    assert repo.get_job(db, ids[0])["status"] == "canceled"
+    assert repo.get_job(db, ids[1])["status"] == "canceled"

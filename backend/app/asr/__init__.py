@@ -5,7 +5,7 @@ from .ffmpeg_normalize import (
     normalize_audio_for_whisper,
 )
 from .presets import ASRPreset, parse_asr_preset, whisper_model_name
-from .transcribe import TranscribeResult, Transcriber
+from .transcribe import Transcriber, TranscribeResult
 
 __all__ = [
     "ASRPreset",
