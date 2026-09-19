@@ -140,6 +140,161 @@ def test_three_audio_container_extensions(
         assert r.status_code == 200, r.text
 
 
+def _write_mp4(path: Path, *, with_audio: bool) -> None:
+    cmd = [
+        "ffmpeg",
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=black:s=160x120:d=0.2",
+    ]
+    if with_audio:
+        cmd.extend(
+            [
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=200:duration=0.2",
+                "-c:v",
+                "mpeg4",
+                "-c:a",
+                "aac",
+                "-shortest",
+            ]
+        )
+    else:
+        cmd.extend(["-an", "-c:v", "mpeg4"])
+    cmd.append(str(path))
+    subprocess.run(cmd, check=True)
+
+
+def test_accept_mp4_with_audio(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg not installed")
+    src = tmp_path / "clip.mp4"
+    _write_mp4(src, with_audio=True)
+
+    import backend.app.jobs.worker as worker_mod
+
+    monkeypatch.setattr(worker_mod, "run_pipeline", _fake_pipeline)
+    from backend.app.main import app
+
+    with TestClient(app) as client:
+        with src.open("rb") as f:
+            r = client.post(
+                "/jobs",
+                files={"audio_file": ("clip.mp4", f, "video/mp4")},
+                data={"asr_model": "fast", "summary_size": "gist"},
+            )
+        assert r.status_code == 200, r.text
+        job_id = r.json()["job_id"]
+        st = client.get(f"/jobs/{job_id}")
+        assert st.status_code == 200
+        assert st.json()["status"] in ("queued", "processing", "done")
+        from backend.app.main import app as loaded_app
+
+        row = repo.get_job(loaded_app.state.settings.sqlite_path, job_id)
+        audio = Path(row["audio_path"])
+        assert audio.suffix.lower() == ".wav"
+        assert audio.is_file()
+        assert not audio.with_suffix(".mp4").is_file()
+
+
+def test_reject_mp4_without_audio(tmp_path: Path) -> None:
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg not installed")
+    if not shutil.which("ffprobe"):
+        pytest.skip("ffprobe not installed")
+    src = tmp_path / "silent.mp4"
+    _write_mp4(src, with_audio=False)
+    from backend.app.main import app
+
+    with TestClient(app) as client:
+        with src.open("rb") as f:
+            r = client.post(
+                "/jobs",
+                files={"audio_file": ("silent.mp4", f, "video/mp4")},
+                data={"asr_model": "fast", "summary_size": "gist"},
+            )
+    assert r.status_code == 400
+    assert "audio" in r.json()["detail"].lower()
+
+
+def test_video_limit_does_not_block_small_audio(
+    monkeypatch: pytest.MonkeyPatch,
+    tiny_audio: Path,
+) -> None:
+    monkeypatch.setenv("ATM_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024))
+    monkeypatch.setenv("ATM_MAX_VIDEO_UPLOAD_BYTES", "1")
+    import backend.app.jobs.worker as worker_mod
+
+    monkeypatch.setattr(worker_mod, "run_pipeline", _fake_pipeline)
+    from backend.app.main import app
+
+    with TestClient(app) as client:
+        with tiny_audio.open("rb") as f:
+            r = client.post(
+                "/jobs",
+                files={"audio_file": ("ok.wav", f, "audio/wav")},
+                data={"asr_model": "fast", "summary_size": "gist"},
+            )
+        assert r.status_code == 200, r.text
+
+
+def test_audio_over_limit_413_even_if_video_limit_is_huge(
+    monkeypatch: pytest.MonkeyPatch,
+    tiny_audio: Path,
+) -> None:
+    monkeypatch.setenv("ATM_MAX_UPLOAD_BYTES", "10")
+    monkeypatch.setenv("ATM_MAX_VIDEO_UPLOAD_BYTES", str(50 * 1024 * 1024))
+    from backend.app.main import app
+
+    with TestClient(app) as client:
+        with tiny_audio.open("rb") as f:
+            r = client.post(
+                "/jobs",
+                files={"audio_file": ("big.wav", f, "audio/wav")},
+                data={"asr_model": "fast", "summary_size": "gist"},
+            )
+    assert r.status_code == 413
+    detail = r.json()["detail"].lower()
+    assert "audio" in detail
+    assert "atm_max_upload_bytes" in detail
+
+
+def test_mp4_uses_video_upload_limit(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg not installed")
+    monkeypatch.setenv("ATM_MAX_UPLOAD_BYTES", "10")
+    monkeypatch.setenv("ATM_MAX_VIDEO_UPLOAD_BYTES", str(50 * 1024 * 1024))
+    src = tmp_path / "clip.mp4"
+    _write_mp4(src, with_audio=True)
+    import backend.app.jobs.worker as worker_mod
+
+    monkeypatch.setattr(worker_mod, "run_pipeline", _fake_pipeline)
+    from backend.app.main import app
+
+    with TestClient(app) as client:
+        with src.open("rb") as f:
+            r = client.post(
+                "/jobs",
+                files={"audio_file": ("clip.mp4", f, "video/mp4")},
+                data={"asr_model": "fast", "summary_size": "gist"},
+            )
+        assert r.status_code == 200, r.text
+
+
 def test_result_409_while_processing(
     monkeypatch: pytest.MonkeyPatch,
     tiny_audio: Path,

@@ -49,3 +49,41 @@ def audio_duration_seconds(path: Path) -> float | None:
     except ValueError:
         logger.warning("ffprobe returned non-float duration: %r", out[:80])
         return None
+
+
+def has_audio_stream(path: Path) -> bool | None:
+    """Return True if the file has an audio stream, False if none, None if ffprobe fails."""
+    if not shutil.which("ffprobe"):
+        logger.warning("ffprobe not found; audio-stream checks are skipped")
+        return None
+    cmd = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "a:0",
+        "-show_entries",
+        "stream=codec_type",
+        "-of",
+        "csv=p=0",
+        str(path),
+    ]
+    try:
+        completed = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        logger.error("ffprobe timed out while checking audio streams for %s", path)
+        return None
+    if completed.returncode != 0:
+        logger.warning(
+            "ffprobe audio-stream check failed (%s): %s",
+            completed.returncode,
+            (completed.stderr or completed.stdout or "").strip()[:500],
+        )
+        return None
+    return bool((completed.stdout or "").strip())

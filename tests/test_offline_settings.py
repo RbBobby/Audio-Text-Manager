@@ -90,3 +90,11 @@ def test_ollama_homebrew_formula_flag(
     )
     s = Settings.from_env()
     assert s.ollama_homebrew_formula is True
+
+
+def test_default_upload_limits(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ATM_MAX_UPLOAD_BYTES", raising=False)
+    monkeypatch.delenv("ATM_MAX_VIDEO_UPLOAD_BYTES", raising=False)
+    s = Settings.from_env()
+    assert s.max_upload_bytes == 500 * 1024 * 1024
+    assert s.max_video_upload_bytes == 4 * 1024 * 1024 * 1024

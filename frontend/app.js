@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const ALLOWED = [".wav", ".mp3", ".m4a", ".flac", ".ogg"];
+  const ALLOWED = [".wav", ".mp3", ".m4a", ".flac", ".ogg", ".mp4"];
 
   const dropzone = document.getElementById("dropzone");
   const fileInput = document.getElementById("file-input");
@@ -307,6 +307,18 @@
       return JSON.stringify(data.detail, null, 2);
     }
     return JSON.stringify(data, null, 2);
+  }
+
+  function formatUploadLimitError(data) {
+    const detail = formatDetail(data);
+    const lower = detail.toLowerCase();
+    if (/too long|длительн/.test(lower)) {
+      return detail || "Аудио слишком длинное";
+    }
+    if (detail) {
+      return detail;
+    }
+    return "Файл слишком большой";
   }
 
   async function tryLoadTranscriptEarly() {
@@ -886,7 +898,7 @@
       progressSection.hidden = true;
       showError(
         e.status === 413
-          ? "Файл слишком большой"
+          ? formatUploadLimitError(e.data)
           : e.data
             ? formatDetail(e.data)
             : e.message || String(e)

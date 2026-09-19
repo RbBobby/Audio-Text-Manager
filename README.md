@@ -1,13 +1,13 @@
 # Audio Text Manager
 
-Локальный сервис: загрузка аудио → **распознавание речи** ([faster-whisper](https://github.com/SYSTRAN/faster-whisper)) → **саммари** через [Ollama](https://ollama.com/) (`/api/chat`). API на **FastAPI**, фоновые джобы — воркер в том же процессе.
+Локальный сервис: загрузка аудио (и видео **mp4**, из которого берётся только звук) → **распознавание речи** ([faster-whisper](https://github.com/SYSTRAN/faster-whisper)) → **саммари** через [Ollama](https://ollama.com/) (`/api/chat`). API на **FastAPI**, фоновые джобы — воркер в том же процессе.
 
 ## Требования
 
 | Компонент | Зачем |
 |-----------|--------|
 | **Python 3.10+** | бэкенд и тесты |
-| **ffmpeg** (+ **ffprobe** в составе ffmpeg) | нормализация аудио перед Whisper |
+| **ffmpeg** (+ **ffprobe** в составе ffmpeg) | нормализация аудио перед Whisper; для `.mp4` извлекается первая аудиодорожка |
 | **Ollama** | LLM для саммари (локально, `http://127.0.0.1:11434` по умолчанию) |
 | **Интернет** (первый запуск) | скачивание весов Whisper и модели Ollama |
 
@@ -22,7 +22,7 @@
 | Что | Где в проекте / как задаётся |
 |-----|------------------------------|
 | Зависимость | `faster-whisper` в `pyproject.toml`; ставится вместе с `pip install -e .` |
-| Нормализация аудио перед ASR | **ffmpeg** (обязателен в `PATH`) — см. `backend/app/asr/ffmpeg_normalize.py` |
+| Нормализация аудио перед ASR | **ffmpeg** (обязателен в `PATH`) — см. `backend/app/asr/ffmpeg_normalize.py`; для `.mp4` берётся поток `0:a:0`, видео не кодируется |
 | Пресеты скорости/качества | `backend/app/asr/presets.py` → в API поле `asr_model`: `fast` / `medium` / `high` |
 | Соответствие чекпоинтам Systran | `fast` → `small`, `medium` → `medium`, `high` → `large-v3` |
 | Кэш весов и офлайн | Переменные `ATM_WHISPER_DOWNLOAD_ROOT`, `ATM_WHISPER_LOCAL_ONLY`, `ATM_OFFLINE` (см. ниже и `configs/app.example.yaml`) |
@@ -256,6 +256,8 @@ export ATM_OFFLINE=1          # macOS / Linux
 | `ATM_DATA_DIR` | корень данных (по умолчанию `data`) |
 | `ATM_SQLITE_PATH` | путь к SQLite джобов (по умолчанию `$ATM_DATA_DIR/app.db`) |
 | `ATM_UPLOADS_DIR` | каталог загруженных аудио (по умолчанию `$ATM_DATA_DIR/uploads`) |
+| `ATM_MAX_UPLOAD_BYTES` | лимит размера аудио (wav/mp3/m4a/flac/ogg), по умолчанию 500 MB |
+| `ATM_MAX_VIDEO_UPLOAD_BYTES` | лимит размера `.mp4` до извлечения звука, по умолчанию 4 GB |
 | `ATM_OLLAMA_BASE_URL` | URL Ollama (по умолчанию `http://127.0.0.1:11434`) |
 | `ATM_OLLAMA_MODEL` | тег модели в Ollama |
 | `ATM_OFFLINE` | офлайн: Whisper без скачивания, Ollama `trust_env=false` |
@@ -270,7 +272,7 @@ export ATM_OFFLINE=1          # macOS / Linux
 
 ## API в двух словах
 
-- `POST /jobs` — форма: `audio_file`, `asr_model` (`fast` \| `medium` \| `high`), `summary_size` (`gist` \| `executive` \| `meeting`; для старых клиентов по-прежнему принимаются `short` \| `medium` \| `long` как синонимы), опционально `custom_prompt` — тогда саммари одним запросом к Ollama по вашей инструкции (иначе пресеты по `summary_size`).
+- `POST /jobs` — форма: `audio_file` (аудио или `.mp4` с звуком), `asr_model` (`fast` \| `medium` \| `high`), `summary_size` (`gist` \| `executive` \| `meeting`; для старых клиентов по-прежнему принимаются `short` \| `medium` \| `long` как синонимы), опционально `custom_prompt` — тогда саммари одним запросом к Ollama по вашей инструкции (иначе пресеты по `summary_size`).
 - `GET /jobs` — список последних джобов (`limit`, `offset`), без больших полей.
 - `GET /jobs/{id}` — статус и стадии.
 - `GET /jobs/{id}/transcript` — транскрипт, как только ASR завершён (до готовности всего джоба); **425**, если транскрипта ещё нет; **409**, если джоб упал до транскрипта.

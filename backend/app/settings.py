@@ -74,6 +74,7 @@ class Settings:
     ollama_base_url: str
     ollama_model: str
     max_upload_bytes: int
+    max_video_upload_bytes: int
     summary_chunk_chars: int
     summary_chunk_overlap: int
     summary_map_threshold_chars: int
@@ -147,8 +148,13 @@ class Settings:
             ollama_model=os.environ.get(
                 "ATM_OLLAMA_MODEL", "qwen2.5:14b-instruct-q4_K_M"
             ),
-            max_upload_bytes=int(
-                os.environ.get("ATM_MAX_UPLOAD_BYTES", str(500 * 1024 * 1024))
+            max_upload_bytes=_i(
+                "ATM_MAX_UPLOAD_BYTES", 500 * 1024 * 1024, min_v=1
+            ),
+            max_video_upload_bytes=_i(
+                "ATM_MAX_VIDEO_UPLOAD_BYTES",
+                4 * 1024 * 1024 * 1024,
+                min_v=1,
             ),
             summary_chunk_chars=int(os.environ.get("ATM_SUMMARY_CHUNK_CHARS", "10000")),
             summary_chunk_overlap=int(

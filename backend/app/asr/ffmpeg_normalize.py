@@ -21,7 +21,7 @@ def ensure_ffmpeg() -> None:
 
 
 def normalize_audio_for_whisper(src: Path, dst: Path) -> Path:
-    """Convert arbitrary audio to mono 16 kHz PCM WAV (Whisper-friendly)."""
+    """Convert audio (or the first audio track of a video) to mono 16 kHz PCM WAV."""
     ensure_ffmpeg()
     src = Path(src)
     dst = Path(dst)
@@ -37,6 +37,9 @@ def normalize_audio_for_whisper(src: Path, dst: Path) -> Path:
         "-y",
         "-i",
         str(src.resolve()),
+        "-map",
+        "0:a:0",
+        "-vn",
         "-ac",
         "1",
         "-ar",
@@ -48,6 +51,12 @@ def normalize_audio_for_whisper(src: Path, dst: Path) -> Path:
     completed = subprocess.run(cmd, capture_output=True, text=True)
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout or "").strip() or "unknown error"
+        lower = detail.lower()
+        if "matches no streams" in lower or "does not contain any stream" in lower:
+            raise FFmpegError(
+                "No audio track in file; cannot transcribe",
+                stderr=completed.stderr,
+            )
         raise FFmpegError(
             f"ffmpeg failed (exit {completed.returncode}): {detail}",
             stderr=completed.stderr,
