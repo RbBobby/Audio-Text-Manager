@@ -160,9 +160,16 @@ pip install -e ".[dev]"
    - Либо: `winget install Python.Python.3.12`  
    - Закройте и снова откройте терминал после установки. Проверка: `python --version`
 
-2. **Виртуальное окружение и pip**  
-   В **cmd** или **PowerShell** из каталога репозитория:
+2. **Виртуальное окружение и зависимости**  
+   Из корня репозитория (GNU Make не нужен):
 
+   ```bat
+   make.bat install
+   ```
+
+   В PowerShell: `.\make.bat install`
+
+   Вручную (cmd):
    ```bat
    python -m venv .venv
    .venv\Scripts\activate.bat
@@ -202,8 +209,16 @@ pip install -e ".[dev]"
      В PowerShell: `$env:ATM_OLLAMA_MODEL="qwen2.5:7b-instruct-q4_K_M"`
    - Список моделей: **`ollama list`**. Если **`ollama` не распознаётся** — переустановите с [ollama.com/download/windows](https://ollama.com/download/windows), откройте новый терминал; при необходимости добавьте каталог установки Ollama в **PATH** пользователя (см. настройки установщика / документацию Ollama).
 
-6. **Запуск приложения** (из корня репозитория, venv активирован):
+6. **Запуск приложения** (из корня репозитория, Ollama уже слушает порт):
 
+   ```bat
+   make.bat run
+   ```
+
+   PowerShell: `.\make.bat run`  
+   Другой порт: `set PORT=8001 && make.bat run`
+
+   Без скрипта (venv активирован):
    ```bat
    uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
    ```
@@ -214,7 +229,7 @@ pip install -e ".[dev]"
 
 8. **Тесты**  
    ```bat
-   pytest
+   make.bat test
    ```  
    Нужен **ffmpeg** в PATH (часть тестов генерирует wav через lavfi).
 
